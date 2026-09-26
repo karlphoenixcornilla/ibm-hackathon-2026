@@ -1,0 +1,17 @@
+{
+  "name": "reprise-runner",
+  "version": "0.1.0",
+  "description": "Reprise Runner — local test execution server for the Reprise IDE.",
+  "type": "module",
+  "main": "reprise-runner.mjs",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "node reprise-runner.mjs",
+    "test": "node --test test/**/*.test.mjs",
+    "lint": "node --check src/**/*.mjs reprise-runner.mjs"
+  },
+  "license": "MIT",
+  "devDependencies": {}
+}
