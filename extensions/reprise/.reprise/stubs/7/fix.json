@@ -1,0 +1,6 @@
+{
+  "summary": "Add lifecycle guards in BiometricPrompt callbacks in LoginActivity to prevent UI operations on a destroyed Activity.",
+  "files_changed": ["app/src/main/java/com/example/demoapp/LoginActivity.kt"],
+  "risk_notes": "Low risk. The change adds two null/lifecycle checks that short-circuit callback methods when the Activity is no longer alive. No change to business logic. Existing passing tests should remain unaffected.",
+  "tests_added": []
+}

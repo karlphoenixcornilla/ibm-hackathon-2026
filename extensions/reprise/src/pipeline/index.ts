@@ -1,8 +1,10 @@
-// pipeline/ — intake, dedupe, test provide/validate, trials, verdict, diagnosis
+// pipeline/index.ts — PipelineService factory
 // Owned by: T3
 // Spec: 02-specs/replication-pipeline.md
-import type { Services, PipelineService } from '../contracts/services';
 
-export function createPipeline(_services: Omit<Services, 'pipeline'>): PipelineService {
-  throw new Error('Not implemented yet (track T3)');
+import type { Services, PipelineService } from '../contracts/services';
+import { PipelineOrchestrator } from './orchestrator';
+
+export function createPipeline(services: Omit<Services, 'pipeline'>): PipelineService {
+  return new PipelineOrchestrator(services);
 }
