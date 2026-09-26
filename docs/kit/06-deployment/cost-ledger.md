@@ -17,3 +17,12 @@
 | Code signing (Windows certificate, Apple Developer Program) | Not used | Paid, so excluded by R-13; nothing is installed except a Node.js script | — | [ ] |
 | AI providers | Not used | R-5 stub | Future providers must be re-evaluated against R-13 | [ ] |
 | Fonts (IBM Plex) | 0 | Gate G-16 | Self-hosted | [ ] |
+
+## G-5 prerequisite inspection
+
+- Inspected the local `track/t5-web` checkout on 2026-09-26.
+- Status: blocked before the build trial. The checkout contains the Reprise skeleton but no root `package.json`, `product.json`, `.nvmrc`, or `build/gulpfile.vscode.web.js`. No local Git tags are present.
+- `../02-specs/ide-fork.md` still has no pinned Code - OSS release tag. The root `verification-gates.md` labels G-5 "Likely PASS", but provides no build measurements; this does not verify G-5.
+- Required next input: the team's Code - OSS fork location and pinned stable release tag, with the base web build available.
+- Build command, output folder, output size, and hosted-runner duration remain unverified. No build, deployment, or paid resource was started during this inspection.
+- After the source is available, inspect its build scripts, run the hosted build trial, and record the measured size and duration before marking G-5 complete. G-6 then requires testing the built IDE in Chrome and Edge without custom headers.
