@@ -1,0 +1,43 @@
+%% Reprise IDE - acknowledge to verdict (v3)
+sequenceDiagram
+    autonumber
+    actor U as Developer
+    participant V as Bug Reports view
+    participant P as Pipeline
+    participant AI as Provider (stub)
+    participant W as Opened folder
+    participant X as Runner or CI + adapter
+    participant G as GitHub
+
+    U->>V: Acknowledge report #N
+    V->>P: start replication(#N)
+    P->>G: fetch issue, attachments, earlier records
+    P->>AI: intake(report)
+    AI-->>P: fingerprint, platform, attempt_possible, question
+    P->>P: score against earlier fingerprints
+    opt candidate above threshold
+        P->>AI: dedupe-confirm
+        AI-->>P: same_bug + reason
+    end
+    alt user supplies a test
+        U->>P: choose test file (validate)
+    else provider supplies a test
+        P->>AI: test(report, fingerprint)
+        AI-->>P: test file + signature
+        P->>U: show test in diff view, ask approval (PD-10)
+        U-->>P: approve
+        P->>W: write test file, record SHA-256
+    end
+    P->>X: run once on platform
+    X-->>P: outcome
+    P->>X: run trials per policy (min 10, max 20, early stop if all fail)
+    X-->>P: outcomes
+    P->>P: verdict + interval (statistics.md)
+    opt CONFIRMED or FLAKY
+        P->>AI: rootcause
+        AI-->>P: summary, locations, direction
+        P->>U: show diagnosis with evidence
+        U-->>P: accept or edit diagnosis
+    end
+    P->>G: commit record to reprise-data (Git Data API)
+    P-->>V: show verdict in Reprise panel

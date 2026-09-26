@@ -1,0 +1,33 @@
+%% Reprise IDE - zero-cost deployment (v3)
+flowchart LR
+    subgraph IDE["github.com/OWNER/reprise-ide (public fork)"]
+        src["Code - OSS at pinned tag<br/>+ product.json branding<br/>+ extensions/reprise (web)"]
+        runnerSrc["runner/"]
+        dash["dashboard/ + repos.json"]
+        wfp["pages.yml<br/>web build + dashboard<br/>scheduled + manual"]
+        wfr2["release-runner.yml<br/>tags v*"]
+        rel["GitHub Releases<br/>reprise-runner.mjs + SHA-256"]
+        site["https://OWNER.github.io/reprise-ide/<br/>dashboard at /, IDE at /ide/"]
+    end
+
+    subgraph APPS["Demo app repositories (public)"]
+        cfg[".reprise.yml + .reprise/stubs/"]
+        wfr["reprise-run.yml<br/>workflow_dispatch"]
+        dataB[("reprise-data branch")]
+    end
+
+    runners["Standard GitHub-hosted runners<br/>free for public repositories"]
+    machines["Team machines<br/>Chrome or Edge + Reprise Runner"]
+
+    src --> wfp
+    dash --> wfp
+    wfp --> runners
+    runners --> site
+    runnerSrc --> wfr2
+    wfr2 --> rel
+    site -->|IDE loaded in the browser| machines
+    rel -->|runner downloaded once| machines
+    wfr --> runners
+    machines -->|records via Git Data API| dataB
+    runners -->|CI run artifacts read by the IDE| machines
+    wfp -->|reads public reprise-data branches| dataB

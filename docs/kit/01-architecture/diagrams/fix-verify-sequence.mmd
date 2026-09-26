@@ -1,0 +1,41 @@
+%% Reprise IDE - fix candidates, draft PR, verification, self-review (v3)
+sequenceDiagram
+    autonumber
+    actor U as Developer
+    participant R as Reprise panel
+    participant AI as Provider (stub)
+    participant X as CI or runner worktrees
+    participant E as Opened folder + diff editor
+    participant G as GitHub
+
+    U->>R: Propose fixes for #N (diagnosis accepted)
+    loop up to max_rounds (default 3)
+        R->>AI: fix x candidates (default 3), with feedback from earlier rounds
+        AI-->>R: candidate patches (stub: prepared fixtures)
+        R->>R: drop out-of-scope files and duplicate diffs
+        opt candidates run locally
+            U->>R: approve candidate batch (PD-27)
+        end
+        R->>X: quick check each candidate in isolation
+        X-->>R: repro runs and suite results per candidate
+        R->>R: reject still-reproducing and regressing candidates, rank survivors
+    end
+    R->>E: open diff view of selected candidate
+    U->>E: apply, edit or reject
+    E-->>R: applied files written to the folder
+    R->>G: create reprise/fix-N off current branch via Git Data API, open draft PR with checklist
+    R->>X: repro test x required runs, full suite on base and head, reruns for pass-to-fail tests
+    X-->>R: outcomes
+    R->>R: classify tests, apply verdict precedence
+    R->>G: update PR checklist, commit record to reprise-data
+    opt FIX_VERIFIED and self_review on
+        R->>AI: review (diff, diagnosis, results)
+        AI-->>R: findings
+        R-->>U: findings, offer a new round or list them in the PR
+    end
+    U->>R: Mark ready for review
+    R->>G: markPullRequestReadyForReview (GraphQL)
+    opt reviewers comment on the PR
+        U->>R: Address review comments
+        R->>R: start a new candidate round with the comments as feedback
+    end

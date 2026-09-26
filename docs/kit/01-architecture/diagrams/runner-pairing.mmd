@@ -1,0 +1,28 @@
+%% Reprise IDE - opening the IDE, the folder and the runner (v3)
+sequenceDiagram
+    autonumber
+    actor U as Developer
+    participant B as Reprise IDE tab
+    participant F as Local folder
+    participant R as Reprise Runner
+    participant G as GitHub
+
+    U->>B: open https://OWNER.github.io/reprise-ide/ide/
+    B->>B: check showDirectoryPicker exists, else unsupported-browser page
+    U->>B: Open Folder
+    B->>F: showDirectoryPicker, user grants read and write
+    B->>F: read .git/config and .git/HEAD
+    U->>B: sign in (token)
+    B->>G: check token, link owner/repo from origin remote
+    U->>R: node reprise-runner.mjs --root path/to/clone
+    R-->>U: prints port and one-time pairing code
+    U->>B: Reprise: Connect Runner (port, code)
+    B->>R: POST /pair with code
+    R->>R: check Origin against allow-list, code unused and unexpired
+    R-->>B: session token, remote URL, HEAD SHA, platforms available
+    B->>B: compare remote and HEAD with the opened folder
+    alt same repository
+        B-->>U: Runner connected, status bar shows platforms
+    else mismatch
+        B-->>U: Runner root is a different repository, refuse
+    end

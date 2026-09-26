@@ -1,0 +1,32 @@
+%% Reprise IDE - issue lifecycle
+stateDiagram-v2
+    [*] --> LISTED
+    LISTED --> REPLICATING: user acknowledges
+    REPLICATING --> CONFIRMED
+    REPLICATING --> FLAKY
+    REPLICATING --> DUPLICATE
+    REPLICATING --> NEEDS_INFO
+    REPLICATING --> BLOCKED_ENV
+    REPLICATING --> STOPPED: user declines provided test
+    REPLICATING --> ERROR
+    NEEDS_INFO --> REPLICATING: acknowledge again
+    BLOCKED_ENV --> REPLICATING: acknowledge again
+    STOPPED --> REPLICATING: acknowledge again
+    ERROR --> REPLICATING: acknowledge again
+    CONFIRMED --> FIXING: propose fix
+    FLAKY --> FIXING: propose fix
+    FIXING --> FIX_ABANDONED: no usable change
+    FIXING --> VERIFYING: verify
+    CONFIRMED --> VERIFYING: verify a human PR
+    FLAKY --> VERIFYING: verify a human PR
+    FIX_ABANDONED --> FIXING: propose fix again
+    VERIFYING --> FIX_VERIFIED
+    VERIFYING --> FIX_INCOMPLETE
+    VERIFYING --> REGRESSION_DETECTED
+    FIX_INCOMPLETE --> FIXING
+    REGRESSION_DETECTED --> FIXING
+    FIX_INCOMPLETE --> VERIFYING: new commits
+    REGRESSION_DETECTED --> VERIFYING: new commits
+    FIX_VERIFIED --> RESOLVED: PR merged
+    DUPLICATE --> [*]
+    RESOLVED --> [*]

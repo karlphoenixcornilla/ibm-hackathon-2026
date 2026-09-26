@@ -1,0 +1,68 @@
+%% Reprise IDE - components (v3, browser-based)
+flowchart TB
+    subgraph Browser["Chrome or Edge tab"]
+        subgraph WB["Code - OSS web workbench"]
+            product["product.json branding, gallery off"]
+            fsa["Open Folder via File System Access API"]
+            secrets["Secret storage"]
+        end
+        subgraph Ext["Built-in web extension: extensions/reprise (web worker)"]
+            views["views<br/>Bug Reports tree, Runs, Reprise panel, status bar"]
+            auth["auth<br/>built-in provider or token"]
+            gh["github<br/>issues, Git Data API, PRs, dispatch, artifacts"]
+            ws["workspace<br/>workspace.fs, SHA-256"]
+            cfg["config<br/>.reprise.yml"]
+            pipe["pipeline<br/>intake, dedupe, test, trials, verdict, diagnosis"]
+            prov["providers<br/>interface, stub, placeholders"]
+            exec["exec<br/>local executor, CI executor"]
+            rc["runner-client<br/>pairing, run requests, output stream"]
+            fix["fix<br/>proposal, diff review, PR"]
+            ver["verify<br/>repro check, regression"]
+            stats["stats"]
+            store["store<br/>reprise-data records"]
+            sec["security<br/>redaction, approvals"]
+        end
+    end
+
+    subgraph Runner["Reprise Runner (Node.js, 127.0.0.1)"]
+        srv["server<br/>origin check, pairing, session token"]
+        rcfg["config<br/>.reprise.yml from --root"]
+        repo["repo<br/>remote, HEAD, worktrees"]
+        adapt["adapters<br/>windows, android, ios, macos, linux"]
+        drv["drivers<br/>Appium fallback"]
+        env["env filter"]
+    end
+
+    views --> pipe
+    views --> fix
+    views --> ver
+    views --> auth
+    auth --> secrets
+    auth --> gh
+    ws --> fsa
+    cfg --> ws
+    prov --> ws
+    pipe --> cfg
+    pipe --> prov
+    pipe --> exec
+    pipe --> stats
+    pipe --> store
+    fix --> prov
+    fix --> gh
+    fix --> ws
+    fix --> exec
+    ver --> exec
+    ver --> stats
+    ver --> store
+    exec --> rc
+    exec --> gh
+    store --> gh
+    prov --> sec
+    views --> sec
+    store --> sec
+    rc -->|HTTP to 127.0.0.1| srv
+    srv --> rcfg
+    srv --> repo
+    srv --> adapt
+    adapt --> env
+    adapt --> drv

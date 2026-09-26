@@ -1,0 +1,39 @@
+%% Reprise IDE - system context (v3, browser-based)
+flowchart LR
+    dev([Developer using Chrome or Edge])
+    reporter([Bug reporter])
+    judge([Judge or visitor])
+
+    subgraph PC["Developer machines (R-11)"]
+        browser["Reprise IDE in the browser<br/>Code - OSS web build + Reprise web extension"]
+        folder[("Local repository clone<br/>opened via File System Access API")]
+        runner["Reprise Runner<br/>Node.js on 127.0.0.1"]
+        devices["Attached devices and emulators<br/>Android phone or emulator, iOS Simulator"]
+        toolchains["Local toolchains<br/>per demo-apps.md"]
+    end
+
+    subgraph GH["GitHub (public repositories)"]
+        issues["Issues and pull requests<br/>of the target repository"]
+        data[("reprise-data branch<br/>issues/N.json")]
+        runners["GitHub-hosted runners<br/>ubuntu, windows, macos"]
+        releases["GitHub Releases<br/>reprise-runner.mjs"]
+        pages["GitHub Pages<br/>IDE at /ide/ and dashboard"]
+    end
+
+    providers[["AI provider<br/>stub now; Claude, Bob, Gemini, Groq later"]]
+
+    reporter -->|files bug report| issues
+    dev -->|opens URL, signs in, acknowledges, reviews fixes| browser
+    pages -->|serves static IDE| browser
+    browser <-->|read and write files| folder
+    browser <-->|paired requests, results| runner
+    runner -->|runs tests in| folder
+    runner --> toolchains
+    toolchains --> devices
+    browser <-->|REST: issues, Git Data API, PRs, dispatch, artifacts| issues
+    browser -->|dispatch CI runs, read results| runners
+    browser <-->|stage requests and JSON answers| providers
+    browser -->|commit records| data
+    data -->|aggregated at site build| pages
+    judge -->|browses| pages
+    dev -->|downloads once| releases
