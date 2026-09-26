@@ -1,0 +1,15 @@
+{
+  "fingerprint": {
+    "platform": "android",
+    "component": "auth",
+    "functions": ["BiometricManager.authenticate", "LoginActivity.onResume", "BiometricPrompt.AuthenticationCallback"],
+    "symptom": "App crashes with DESTROYED activity state after biometric prompt dismissed by lock screen",
+    "trigger": "Lock screen shown during biometric authentication while BiometricPrompt is active",
+    "expected": "Activity resumes to login screen after lock screen is dismissed",
+    "actual": "Activity is destroyed; IllegalStateException crash with 'Activity has been destroyed' in the logs",
+    "error_signature": "IllegalStateException: Activity has been destroyed"
+  },
+  "attempt_possible": true,
+  "missing": [],
+  "question": ""
+}

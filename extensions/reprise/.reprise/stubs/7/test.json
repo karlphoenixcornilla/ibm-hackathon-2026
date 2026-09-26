@@ -1,0 +1,8 @@
+{
+  "test_file": "app/src/androidTest/LoginBiometricTest.kt",
+  "signature": {
+    "kind": "assertion_message",
+    "pattern": "expected activity to resume but got DESTROYED"
+  },
+  "rationale": "The test locks the screen while a BiometricPrompt is displayed and asserts the Activity resumes. On Android 14 with the bug present the Activity is destroyed instead, producing the expected failure message."
+}
