@@ -1,0 +1,23 @@
+%% Reprise IDE - where and how a test runs (v3)
+flowchart TD
+    req(["Run request: platform, test, count"]) --> pref{"Executor chosen by user<br/>or .reprise.yml default"}
+    pref -- local --> paired{"Reprise Runner paired<br/>with this tab?"}
+    paired -- no --> offerR["Offer 'Reprise: Connect Runner',<br/>or CI executor if configured"]
+    paired -- yes --> host{"Runner's machine can host the platform?<br/>windows: Windows host<br/>macos, ios: macOS + Xcode<br/>android: Android SDK + device or emulator<br/>linux: Linux host"}
+    host -- no --> offer["Offer CI executor if configured,<br/>else BLOCKED_ENV naming the requirement"]
+    host -- yes --> approved{"Test approved and<br/>SHA-256 matches?"}
+    approved -- no --> refuse[["Runner refuses the run"]]
+    approved -- yes --> prereq["Runner adapter checks prerequisites<br/>(tools on PATH, device attached)"]
+    pref -- ci --> wf{"reprise-run.yml installed<br/>and repository public?"}
+    wf -- no --> setup["Offer 'Reprise: Set Up CI Runs'"]
+    wf -- yes --> dispatch["Create reprise/run-ID branch via Git Data API,<br/>dispatch workflow with platform + count"]
+    dispatch --> runner["GitHub-hosted runner for the platform"]
+    runner --> prereq
+    prereq --> cmd{"Repository command configured<br/>for this platform and test type?"}
+    cmd -- yes --> repo["Run repository command from .reprise.yml<br/>(single test file or full suite)"]
+    cmd -- no --> drvok{"Driver fallback available?<br/>windows, mac2, xcuitest, uiautomator2<br/>(none for linux, PD-9)"}
+    drvok -- no --> benv[["BLOCKED_ENV: no way to run tests"]]
+    drvok -- yes --> drv["Start Appium 2 with driver,<br/>run fallback test"]
+    repo --> parse["Parse per-test results<br/>(JUnit XML or adapter parser)"]
+    drv --> parse
+    parse --> out(["Outcomes to the tab: PASS, FAIL_MATCH, FAIL_OTHER, ERROR"])

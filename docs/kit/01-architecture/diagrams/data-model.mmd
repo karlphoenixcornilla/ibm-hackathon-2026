@@ -1,0 +1,98 @@
+%% Reprise IDE - issue record (issues/N.json on reprise-data)
+erDiagram
+    ISSUE_RECORD ||--|| REPLICATION : has
+    ISSUE_RECORD ||--o{ FIX_ITERATION : has
+    ISSUE_RECORD ||--o{ EVENT : logs
+    ISSUE_RECORD ||--|| USAGE : totals
+    REPLICATION ||--|| FINGERPRINT : contains
+    REPLICATION ||--o| REPRO : contains
+    REPLICATION ||--o| DIAGNOSIS : contains
+    REPRO ||--|| RUN_CONTEXT : ran_on
+    FIX_ITERATION ||--o| VERIFICATION : has
+    VERIFICATION ||--|| RUN_CONTEXT : ran_on
+    VERIFICATION ||--|| REPRO_CHECK : contains
+    VERIFICATION ||--|| REGRESSION : contains
+
+    ISSUE_RECORD {
+        int schema
+        string repo
+        int issue
+        string title
+        string state
+        string provider
+        string updated_at
+    }
+    REPLICATION {
+        string verdict
+        int duplicate_of
+        string question
+        string acknowledged_by
+        int duration_ms
+    }
+    FINGERPRINT {
+        string platform
+        string component
+        string symptom
+        string trigger
+        string expected
+        string actual
+        string error_signature
+    }
+    REPRO {
+        string test_origin
+        string test_file
+        string test_sha256
+        string signature_pattern
+        int trials
+        int failed
+        int invalid
+        string sequence
+        float wilson_low
+        float wilson_high
+    }
+    RUN_CONTEXT {
+        string platform
+        string executor
+        string method
+        string host_os
+        string device
+        string ci_run_url
+        string runner_version
+    }
+    DIAGNOSIS {
+        string summary
+        string locations
+        string fix_direction
+    }
+    FIX_ITERATION {
+        int n
+        string source
+        int pr
+        string base_sha
+        string head_sha
+    }
+    VERIFICATION {
+        string verdict
+        string evidence
+    }
+    REPRO_CHECK {
+        int runs_required
+        int runs
+        int failed
+        string claim
+    }
+    REGRESSION {
+        int tests_total
+        string blocking
+        string notable
+    }
+    EVENT {
+        string at
+        string type
+        string detail
+    }
+    USAGE {
+        string provider
+        int calls
+        string by_stage
+    }

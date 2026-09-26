@@ -1,0 +1,15 @@
+%% Reprise - per-test classification in regression comparison
+flowchart TD
+    t(["Each test id present on base or head"]) --> where{"Present on both?"}
+    where -- "base only" --> removed["REMOVED<br/>warning: fix deleted a test"]
+    where -- "head only" --> added{"Passes on head?"}
+    added -- yes --> newpass["ADDED_PASSING"]
+    added -- no --> newfail["ADDED_FAILING<br/>blocks verification"]
+    where -- both --> first{"Base result -> head result<br/>(first full run)"}
+    first -- "pass -> pass" --> ok["UNCHANGED_PASS"]
+    first -- "fail -> pass" --> fixed["NEWLY_PASSING"]
+    first -- "fail -> fail" --> pre["PRE_EXISTING_FAILURE<br/>not blamed on fix"]
+    first -- "pass -> fail" --> rerun["Rerun that test 3x on base and 3x on head"]
+    rerun --> basestable{"Base passed all 4 runs?"}
+    basestable -- no --> flakyx["PRE_EXISTING_FLAKY<br/>excluded, listed"]
+    basestable -- yes --> reg["REGRESSION<br/>blocks verification"]

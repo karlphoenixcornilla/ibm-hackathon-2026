@@ -1,0 +1,35 @@
+%% Reprise IDE - replication decisions
+flowchart TD
+    ack(["User acknowledges report"]) --> cfg{".reprise.yml present<br/>and valid?"}
+    cfg -- no --> benv[["BLOCKED_ENV<br/>names the missing config"]]
+    cfg -- yes --> intake["Intake via provider<br/>fingerprint + platform"]
+    intake --> poss{"attempt_possible?"}
+    poss -- no --> ni1[["NEEDS_INFO<br/>one question"]]
+    poss -- yes --> score["Dedupe score vs earlier records"]
+    score --> cand{"score >= threshold?"}
+    cand -- yes --> conf["Provider confirms same bug?"]
+    conf -- yes --> dup[["DUPLICATE of #M"]]
+    conf -- no --> plat
+    cand -- no --> plat["Resolve platform and executor<br/>(test-execution.mmd)"]
+    plat --> avail{"A capable executor<br/>is available?"}
+    avail -- no --> benv2[["BLOCKED_ENV<br/>names missing machine, device or toolchain"]]
+    avail -- yes --> src{"Test source"}
+    src -- "user test" --> validate["Validate user test"]
+    src -- "provider test" --> approve{"User approves<br/>provided test?"}
+    approve -- no --> stop(["Stopped by user, no verdict"])
+    approve -- yes --> validate
+    validate --> once["Run once"]
+    once --> matched{"Fails with<br/>matching signature?"}
+    matched -- no --> retry{"Attempts left?<br/>(provider test only)"}
+    retry -- yes --> revise["Provider revises test"] --> approve
+    retry -- no --> ni2[["NEEDS_INFO<br/>what was tried + one question"]]
+    matched -- yes --> trials["Run min trials (default 10)"]
+    trials --> early{"Every valid run failed?"}
+    early -- yes --> conf2
+    early -- no --> more["Continue to max trials (default 20)<br/>or time budget"]
+    more --> k{"k of n valid runs failed"}
+    k -- "k = n" --> conf2[["CONFIRMED"]]
+    k -- "0 < k < n" --> flaky[["FLAKY with rate and interval"]]
+    k -- "k = 0" --> ni3[["NEEDS_INFO with upper bound"]]
+    conf2 --> diag["Diagnosis via provider"]
+    flaky --> diag
