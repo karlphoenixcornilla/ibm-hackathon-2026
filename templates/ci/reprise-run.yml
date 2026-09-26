@@ -1,0 +1,96 @@
+# templates/ci/reprise-run.yml
+# Committed to the repository by "Reprise: Set Up CI Runs" (PD-14).
+# Owned by: T4. Spec: 02-specs/test-execution.md §CI executor.
+# Action major versions recorded per gate G-18.
+# G-9:  GitHub-hosted runners are free for public repositories.
+# G-10: Android emulator confirmed on ubuntu-latest.
+# G-11: Xcode/simulator confirmed on macos-latest.
+
+name: reprise-run
+on:
+  workflow_dispatch:
+    inputs:
+      platform:
+        required: true
+        type: choice
+        options: [windows, android, ios, macos, linux]
+      ref:
+        required: true
+        type: string
+      mode:
+        required: true
+        type: choice
+        options: [single, all]
+      test_path:
+        required: false
+        type: string
+        default: ""
+      runs:
+        required: true
+        type: number
+        default: 1
+
+permissions:
+  contents: read
+
+jobs:
+  run:
+    runs-on: ${{ fromJSON('{"windows":"windows-latest","android":"ubuntu-latest","ios":"macos-latest","macos":"macos-latest","linux":"ubuntu-latest"}')[inputs.platform] }}
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4          # G-18: actions/checkout major v4
+        with:
+          ref: "${{ inputs.ref }}"
+          persist-credentials: false
+
+      # ── PLATFORM SETUP ────────────────────────────────────────────────────────
+      # Steps derived from demo-apps.md; gated by G-9/G-10/G-11.
+      # Platforms whose gate failed are marked CI-unavailable by the IDE (not silently skipped).
+
+      # Android (G-10) — emulator on ubuntu-latest
+      - name: Android emulator setup
+        if: inputs.platform == 'android'
+        uses: reactivecircus/android-emulator-runner@v2   # G-18: major v2
+        with:
+          api-level: 34
+          arch: x86_64
+          profile: Nexus 6
+          script: echo "Emulator ready"
+
+      # iOS (G-11) — Xcode 15 + simulator on macos-latest
+      - name: Select Xcode
+        if: inputs.platform == 'ios' || inputs.platform == 'macos'
+        run: sudo xcode-select -s /Applications/Xcode_15.4.app/Contents/Developer
+
+      - name: Boot iOS simulator
+        if: inputs.platform == 'ios'
+        run: |
+          UDID=$(xcrun simctl list devices available -j | \
+            python3 -c "
+          import sys, json
+          devs = json.load(sys.stdin)['devices']
+          print(next(d['udid'] for dl in devs.values() for d in dl
+                     if 'iPhone' in d.get('name','') and d.get('isAvailable')))
+          ")
+          xcrun simctl boot "$UDID" 2>/dev/null || true
+          echo "SIM_UDID=$UDID" >> "$GITHUB_ENV"
+
+      # Windows / Linux — prereqs come from .reprise.yml; no extra setup here.
+
+      # ── RUN ───────────────────────────────────────────────────────────────────
+      - name: Run reprise loop
+        shell: bash
+        env:
+          REPRISE_PLATFORM: ${{ inputs.platform }}
+          REPRISE_MODE:     ${{ inputs.mode }}
+          REPRISE_TEST_PATH: ${{ inputs.test_path }}
+          REPRISE_RUNS:     ${{ inputs.runs }}
+        run: node .reprise/ci/run-loop.mjs
+
+      # ── UPLOAD ────────────────────────────────────────────────────────────────
+      - uses: actions/upload-artifact@v4   # G-18: actions/upload-artifact major v4
+        if: always()
+        with:
+          name: reprise-results
+          path: results/
+          retention-days: 1
