@@ -9,7 +9,8 @@
   },
   "scripts": {
     "start": "node reprise-runner.mjs",
-    "test": "node --test test/**/*.test.mjs",
+    "test": "node --test \"test/**/*.test.mjs\"",
+    "build": "node build.mjs",
     "lint": "node --check src/**/*.mjs reprise-runner.mjs"
   },
   "license": "MIT",

@@ -28,6 +28,13 @@ import { FakeSecurity } from '../fakes/FakeSecurity';
 // Real module factories (each returns its own fake until the track implements it)
 import { createConfig } from '../config/config';
 
+// T1 real factories
+import { createAuth } from '../auth/index';
+import { createWorkspace } from '../workspace/index';
+import { createGitHub } from '../github/index';
+import { createStore } from '../store/index';
+import { createViews } from '../views/index';
+
 /**
  * Build the complete Services container.
  *
@@ -72,29 +79,60 @@ function buildFakeServices(): Services {
   };
 }
 
-function buildRealServices(_context: vscode.ExtensionContext): Services {
+function buildRealServices(context: vscode.ExtensionContext): Services {
   // Config is fully implemented by base.
   const config = createConfig();
 
-  // All other modules: factory stubs that throw until their track implements them.
-  // Each factory is in its own module folder and will be replaced in-place.
-  return {
-    config,
-    auth: new FakeAuth(),                   // T1 replaces
-    github: new FakeGitHub(),               // T1 replaces
-    store: new FakeIssueStore(),            // T1 replaces
-    workspace: new FakeWorkspace(),         // T1 replaces
-    views: new FakeViews(),                 // T1 replaces
-    runnerClient: new FakeRunnerClient(),   // T2 replaces
-    executors: {
-      local: new FakeExecutor('local'),     // T2 replaces
-      ci: new FakeExecutor('ci'),           // T4 replaces
+  // T1: real auth (SecretStorage, G-7 built-in provider, PD-23 token)
+  const auth = createAuth(context);
+
+  // T1: real workspace (workspace.fs + .git parsing)
+  const workspace = createWorkspace();
+
+  // Partial services needed for github factory
+  const partialForGitHub = { auth, config };
+
+  // T1: real GitHub service (REST + Git Data API)
+  const github = createGitHub({
+    ...partialForGitHub,
+    workspaceReader: async (path: string) => {
+      const r = await workspace.readFile(path);
+      if (!r.ok) { return null; }
+      return new TextDecoder().decode(r.value);
     },
-    providers: new FakeProvider(),          // T3 replaces
-    pipeline: new FakePipeline(),           // T3 replaces
-    stats: new FakeStats(),                 // T3 replaces (StatsService is partially implemented in fake)
-    fix: new FakeFix(),                     // T4 replaces
-    verify: new FakeVerify(),               // T4 replaces
-    security: new FakeSecurity(),           // T3 replaces
+  });
+
+  // T1: real store (reprise-data branch + IndexedDB cache)
+  const store = createStore({ github });
+
+  // Remaining stubs
+  const runnerClient = new FakeRunnerClient();   // T2 replaces
+  const executors = {
+    local: new FakeExecutor('local'),            // T2 replaces
+    ci: new FakeExecutor('ci'),                  // T4 replaces
   };
+  const providers = new FakeProvider();          // T3 replaces
+  const pipeline = new FakePipeline();           // T3 replaces
+  const stats = new FakeStats();                 // T3 replaces
+  const fix = new FakeFix();                     // T4 replaces
+  const verify = new FakeVerify();               // T4 replaces
+  const security = new FakeSecurity();           // T3 replaces
+
+  // Build a partial services object so views can reference other services
+  const partial: Omit<Services, 'views'> = {
+    config, auth, github, store, workspace,
+    runnerClient, executors, providers, pipeline, stats, fix, verify, security,
+  };
+
+  // T1: real views (trees, webview panel, status bar)
+  const views = createViews(
+    // views needs the full Services object; we cast here because at this point
+    // all services are wired. The views factory only reads services.github,
+    // services.store, and services.views (for error reporting).
+    { ...partial, views: new FakeViews() } as Services,
+    context
+  );
+
+  // Replace the placeholder views ref with the real one
+  return { ...partial, views };
 }
