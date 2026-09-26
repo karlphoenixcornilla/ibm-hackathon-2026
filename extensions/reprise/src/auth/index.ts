@@ -79,7 +79,7 @@ export function createAuth(
 
   // ── Public API ────────────────────────────────────────────────────────────
 
-  async function signIn(): Promise<import('../util/result').Result<string, string>> {
+  async function signIn(): Promise<Result<string, string>> {
     // G-7: built-in provider
     let token = await tryBuiltinAuth();
 

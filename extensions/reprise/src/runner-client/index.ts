@@ -244,7 +244,8 @@ class RunnerClient implements RunnerClientService {
   private async detectWorkspaceRemote(): Promise<string | null> {
     try {
       const bytes = await this.services.workspace.readFile('.git/config');
-      const text = new TextDecoder().decode(bytes);
+      if (!bytes.ok) return null;
+      const text = new TextDecoder().decode(bytes.value);
       const m = text.match(/\[remote "origin"\][^\[]*url\s*=\s*(.+)/);
       return m ? m[1].trim() : null;
     } catch {
@@ -255,11 +256,13 @@ class RunnerClient implements RunnerClientService {
   private async detectWorkspaceHead(): Promise<string | null> {
     try {
       const bytes = await this.services.workspace.readFile('.git/HEAD');
-      const text = new TextDecoder().decode(bytes).trim();
+      if (!bytes.ok) return null;
+      const text = new TextDecoder().decode(bytes.value).trim();
       if (text.startsWith('ref: ')) {
         const refPath = text.slice(5).trim(); // e.g. refs/heads/main
         const refBytes = await this.services.workspace.readFile(`.git/${refPath}`);
-        return new TextDecoder().decode(refBytes).trim();
+        if (!refBytes.ok) return null;
+        return new TextDecoder().decode(refBytes.value).trim();
       }
       return text; // detached HEAD
     } catch {

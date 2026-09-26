@@ -21,20 +21,17 @@ module.exports = {
         'Only src/wiring/ and src/fakes/ may import across modules.',
       severity: 'error',
       from: {
-        path: '^src/(?!contracts|util|wiring|fakes|extension\\.ts)',
+        path: '^src/(?!(?:contracts|util|wiring|fakes)/)(exec/[^/]+|[^/]+)/',
       },
       to: {
         path: '^src/',
         pathNot: [
           '^src/contracts/',
           '^src/util/',
-          // Allow a module to import from itself (same folder prefix)
-          // This is expressed as a dynamic rule via the "from" group below
+          // Match the module captured in from.path, including exec/local or exec/ci.
+          '^src/$1/',
         ],
       },
-      // Refine: allow self-imports by checking that "to" starts with the same module root
-      // dependency-cruiser doesn't support dynamic from-to comparison directly,
-      // so we list every module folder explicitly in pathNot to allow self-imports.
     },
 
     // ── providers may not import exec/ ──────────────────────────────────────

@@ -14,7 +14,7 @@ export function createWorkspace(): WorkspaceService {
     return vscode.workspace.workspaceFolders?.[0]?.uri ?? null;
   }
 
-  async function readFile(path: string): Promise<import('../util/result').Result<Uint8Array, string>> {
+  async function readFile(path: string): Promise<Result<Uint8Array, string>> {
     const root = getRootUri();
     if (!root) { return Result.err('No workspace folder is open.'); }
     try {
@@ -29,7 +29,7 @@ export function createWorkspace(): WorkspaceService {
   async function writeFile(
     path: string,
     content: Uint8Array
-  ): Promise<import('../util/result').Result<void, string>> {
+  ): Promise<Result<void, string>> {
     const root = getRootUri();
     if (!root) { return Result.err('No workspace folder is open.'); }
     try {

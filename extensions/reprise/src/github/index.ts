@@ -112,7 +112,7 @@ export function createGitHub(services: {
 
   // ── detectRepo ────────────────────────────────────────────────────────────
 
-  async function detectRepo(): Promise<import('../util/result').Result<string, string>> {
+  async function detectRepo(): Promise<Result<string, string>> {
     const readText = async (p: string): Promise<string | null> => {
       const r = await services.workspaceReader(p);
       return r;
@@ -141,7 +141,7 @@ export function createGitHub(services: {
 
   // ── listIssues ────────────────────────────────────────────────────────────
 
-  async function listIssues(repo: string): Promise<import('../util/result').Result<GitHubIssue[], string>> {
+  async function listIssues(repo: string): Promise<Result<GitHubIssue[], string>> {
     const cfg = services.config.get();
     const labels = cfg?.issues?.labels ?? ['bug'];
     const labelParam = labels.join(',');
@@ -175,7 +175,7 @@ export function createGitHub(services: {
 
   // ── readRecord ────────────────────────────────────────────────────────────
 
-  async function readRecord(repo: string, issue: number): Promise<import('../util/result').Result<IssueRecord | null, string>> {
+  async function readRecord(repo: string, issue: number): Promise<Result<IssueRecord | null, string>> {
     // Read issues/<N>.json from the reprise-data branch via Contents API
     const url = `${API}/repos/${repo}/contents/issues/${issue}.json?ref=${REPRISE_DATA_BRANCH}`;
     const r = await ghFetch<Record<string, unknown>>(url, { token: tok() });
@@ -203,7 +203,7 @@ export function createGitHub(services: {
     repo: string,
     issue: number,
     record: IssueRecord
-  ): Promise<import('../util/result').Result<void, string>> {
+  ): Promise<Result<void, string>> {
     const path = `issues/${issue}.json`;
     const contentBytes = new TextEncoder().encode(JSON.stringify(record, null, 2));
     const contentB64 = btoa(String.fromCharCode(...contentBytes));
@@ -234,7 +234,7 @@ export function createGitHub(services: {
 
   // ── getOrCreateBranch ─────────────────────────────────────────────────────
 
-  async function getOrCreateBranch(repo: string): Promise<import('../util/result').Result<string, string>> {
+  async function getOrCreateBranch(repo: string): Promise<Result<string, string>> {
     const url = `${API}/repos/${repo}/git/refs/heads/${REPRISE_DATA_BRANCH}`;
     const r = await ghFetch<{ object: { sha: string } }>(url, { token: tok() });
 
@@ -283,7 +283,7 @@ export function createGitHub(services: {
     contentB64: string,
     parentSha: string,
     message: string
-  ): Promise<import('../util/result').Result<void, string>> {
+  ): Promise<Result<void, string>> {
     // Step 1: create blob
     const blobR = await ghFetch<{ sha: string }>(
       `${API}/repos/${repo}/git/blobs`,
@@ -346,7 +346,7 @@ export function createGitHub(services: {
     title: string,
     body: string,
     draft: boolean
-  ): Promise<import('../util/result').Result<{ number: number; html_url: string }, string>> {
+  ): Promise<Result<{ number: number; html_url: string }, string>> {
     // Check if a PR already exists for this branch
     const listR = await ghFetch<Array<{ number: number; html_url: string; head: { ref: string } }>>(
       `${API}/repos/${repo}/pulls?state=open&head=${encodeURIComponent(repo.split('/')[0] + ':' + branch)}&base=${encodeURIComponent(base)}`,
@@ -379,7 +379,7 @@ export function createGitHub(services: {
   async function dispatchWorkflow(
     repo: string,
     inputs: Record<string, string | number>
-  ): Promise<import('../util/result').Result<{ runId: number }, string>> {
+  ): Promise<Result<{ runId: number }, string>> {
     // Dispatch reprise-run.yml
     const dispatchR = await ghFetch(
       `${API}/repos/${repo}/actions/workflows/reprise-run.yml/dispatches`,
@@ -407,7 +407,7 @@ export function createGitHub(services: {
   async function downloadArtifact(
     url: string,
     token: string
-  ): Promise<import('../util/result').Result<Record<string, unknown>, string>> {
+  ): Promise<Result<Record<string, unknown>, string>> {
     let res: Response;
     try {
       res = await fetch(url, {

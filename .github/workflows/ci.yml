@@ -74,7 +74,9 @@ jobs:
 
       - name: Parse all .mmd diagrams
         run: |
+          set -euo pipefail
+          output_dir="$(mktemp -d)"
           find docs/kit/01-architecture/diagrams -name "*.mmd" | while read f; do
             echo "Checking $f..."
-            mmdc --input "$f" --output /dev/null --quiet
+            mmdc --input "$f" --output "$output_dir/$(basename "$f" .mmd).svg" --quiet
           done
