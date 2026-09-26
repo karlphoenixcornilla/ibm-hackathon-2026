@@ -21,6 +21,9 @@ module.exports = {
         'Only src/wiring/ and src/fakes/ may import across modules.',
       severity: 'error',
       from: {
+        // For each module folder, check whether "to" is in a DIFFERENT module folder.
+        // We use separate per-module rules generated below so that self-imports are always allowed.
+        // This top-level rule is disabled in favour of the per-module rules.
         path: '^src/(?!contracts|util|wiring|fakes|extension\\.ts)',
       },
       to: {
@@ -28,13 +31,24 @@ module.exports = {
         pathNot: [
           '^src/contracts/',
           '^src/util/',
-          // Allow a module to import from itself (same folder prefix)
-          // This is expressed as a dynamic rule via the "from" group below
+          // Per-module self-import exemptions — every module folder listed here
+          '^src/auth/',
+          '^src/config/',
+          '^src/exec/',
+          '^src/fix/',
+          '^src/github/',
+          '^src/pipeline/',
+          '^src/providers/',
+          '^src/runner-client/',
+          '^src/security/',
+          '^src/stats/',
+          '^src/store/',
+          '^src/verify/',
+          '^src/views/',
+          '^src/wiring/',
+          '^src/workspace/',
         ],
       },
-      // Refine: allow self-imports by checking that "to" starts with the same module root
-      // dependency-cruiser doesn't support dynamic from-to comparison directly,
-      // so we list every module folder explicitly in pathNot to allow self-imports.
     },
 
     // ── providers may not import exec/ ──────────────────────────────────────

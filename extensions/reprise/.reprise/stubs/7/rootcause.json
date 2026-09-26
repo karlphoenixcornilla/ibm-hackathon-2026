@@ -1,0 +1,13 @@
+{
+  "summary": "BiometricPrompt authentication callback is invoked on an Activity that has already been destroyed by the system when the screen was locked. The callback attempts to update UI without checking whether the Activity is still alive.",
+  "locations": [
+    {
+      "file": "app/src/main/java/com/example/demoapp/LoginActivity.kt",
+      "start_line": 47,
+      "end_line": 62,
+      "reason": "The BiometricPrompt.AuthenticationCallback.onAuthenticationSucceeded() and onAuthenticationFailed() methods call UI update methods (showToast, navigateToHome) without first checking isFinishing() or isDestroyed(). When the lock screen destroys the Activity, the next callback invocation throws IllegalStateException."
+    }
+  ],
+  "fix_direction": "Add a guard at the top of each BiometricPrompt callback method: if (isFinishing() || isDestroyed()) return. This prevents UI operations on a destroyed Activity. Also consider using lifecycle-aware components (LifecycleOwner) to automatically cancel the prompt when the Activity is destroyed.",
+  "confidence": "high"
+}
