@@ -76,7 +76,9 @@ jobs:
         run: |
           set -euo pipefail
           output_dir="$(mktemp -d)"
+          # Chromium's sandbox is unavailable on the hosted Ubuntu runner.
+          echo '{"args":["--no-sandbox"]}' > "$output_dir/puppeteer.json"
           find docs/kit/01-architecture/diagrams -name "*.mmd" | while read f; do
             echo "Checking $f..."
-            mmdc --input "$f" --output "$output_dir/$(basename "$f" .mmd).svg" --quiet
+            mmdc --input "$f" --output "$output_dir/$(basename "$f" .mmd).svg" --puppeteerConfigFile "$output_dir/puppeteer.json" --quiet
           done
