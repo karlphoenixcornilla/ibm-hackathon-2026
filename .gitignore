@@ -1,0 +1,21 @@
+# Node dependencies
+node_modules/
+
+# Build output
+out/
+dist/
+
+# TypeScript incremental build
+*.tsbuildinfo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/settings.json
+*.swp
+*.swo
+
+# NPM lockfiles (committed per project subfolder)
+package-lock.json
