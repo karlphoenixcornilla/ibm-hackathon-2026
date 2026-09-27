@@ -1,7 +1,7 @@
 // exec/ci/ — CI executor (workflow dispatch, poll, artifact download)
 // Owned by: T4
 // Spec: 02-specs/test-execution.md §CI executor, gates G-9, G-10, G-11, G-24
-import type * as vscode from 'vscode';
+import type * as runtime from '../../contracts/runtime';
 import type { Services } from '../../contracts/services';
 import type {
   Executor,
@@ -42,7 +42,7 @@ class CiExecutor implements Executor {
 
   async run(
     req: RunRequest,
-    token: vscode.CancellationToken,
+    token: runtime.CancellationToken,
     onEvent: (event: RunEvent) => void,
   ): Promise<RunResult[]> {
     const authToken = this.svc.auth.getToken();

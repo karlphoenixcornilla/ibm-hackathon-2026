@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "issue-record.schema.json",
+  "title": "Reprise Issue Record (schema 3)",
+  "description": "Issue record stored at issues/<N>.json on the reprise-data branch.",
+  "type": "object",
+  "required": ["schema", "repo", "issue", "title", "url", "state", "provider", "stubbed", "created_at", "updated_at"],
+  "properties": {
+    "schema": { "type": "integer", "const": 3 },
+    "repo": { "type": "string", "pattern": "^[^/]+/[^/]+$" },
+    "issue": { "type": "integer", "minimum": 1 },
+    "title": { "type": "string" },
+    "url": { "type": "string", "format": "uri" },
+    "state": {
+      "type": "string",
+      "enum": ["LISTED","REPLICATING","CONFIRMED","FLAKY","DUPLICATE","NEEDS_INFO","BLOCKED_ENV","STOPPED","ERROR","FIXING","FIX_ABANDONED","VERIFYING","FIX_VERIFIED","FIX_INCOMPLETE","REGRESSION_DETECTED","RESOLVED"]
+    },
+    "provider": { "type": "string" },
+    "stubbed": { "type": "boolean" },
+    "created_at": { "type": "string" },
+    "updated_at": { "type": "string" },
+    "replication": { "type": "object" },
+    "fix": { "type": "object", "properties": { "iterations": { "type": "array" } } },
+    "resolution_note": { "type": "string" },
+    "usage": { "type": "object" },
+    "events": { "type": "array", "maxItems": 200 }
+  },
+  "additionalProperties": true
+}

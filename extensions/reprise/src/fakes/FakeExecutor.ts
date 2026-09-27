@@ -1,7 +1,7 @@
 // fakes/FakeExecutor.ts — in-memory fake Executor returning scripted RunResults
 // 20 trials, 7 FAIL_MATCH (flaky bug)
 import type { Executor, RunRequest, RunResult, RunEvent, Availability } from '../contracts/execution';
-import type * as vscode from 'vscode';
+import type * as runtime from '../contracts/runtime';
 
 const SCRIPTED_RESULTS: RunResult[] = Array.from({ length: 20 }, (_, i) => {
   const isFail = [0, 2, 5, 7, 11, 14, 18].includes(i); // 7 failures
@@ -39,7 +39,7 @@ export class FakeExecutor implements Executor {
 
   async run(
     _req: RunRequest,
-    _token: vscode.CancellationToken,
+    _token: runtime.CancellationToken,
     onEvent: (event: RunEvent) => void
   ): Promise<RunResult[]> {
     const results: RunResult[] = [];

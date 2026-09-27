@@ -21,7 +21,7 @@ import type { Provider, StageRequest, StageResponse } from '../src/contracts/pro
 import type { RunnerClientService } from '../src/contracts/services';
 import type { Result } from '../src/util/result';
 import { Result as R } from '../src/util/result';
-import type * as vscode from 'vscode';
+import type * as runtime from '../src/contracts/runtime';
 import { createHash } from 'node:crypto';
 
 // ── Inline workspace fake (avoids vscode module dependency) ──────────────────
@@ -49,9 +49,9 @@ class InlineWorkspace implements WorkspaceService {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-const CANCEL_TOKEN: vscode.CancellationToken = {
+const CANCEL_TOKEN: runtime.CancellationToken = {
   isCancellationRequested: false,
-  onCancellationRequested: (() => ({ dispose: () => undefined })) as unknown as vscode.Event<unknown>,
+  onCancellationRequested: (() => ({ dispose: () => undefined })) as unknown as runtime.Event<unknown>,
 };
 
 class ScriptedExecutor implements Executor {
@@ -66,7 +66,7 @@ class ScriptedExecutor implements Executor {
 
   async run(
     _req: RunRequest,
-    _token: vscode.CancellationToken,
+    _token: runtime.CancellationToken,
     onEvent: (event: RunEvent) => void
   ): Promise<RunResult[]> {
     // Return ONE result per call (trials stage calls run() once per trial)
@@ -85,7 +85,7 @@ class UnavailableExecutor implements Executor {
   async available(): Promise<Availability> {
     return { available: false, reason: 'No runner connected' };
   }
-  async run(_req: RunRequest, _token: vscode.CancellationToken, _onEvent: (e: RunEvent) => void): Promise<RunResult[]> {
+  async run(_req: RunRequest, _token: runtime.CancellationToken, _onEvent: (e: RunEvent) => void): Promise<RunResult[]> {
     throw new Error('unavailable');
   }
 }
@@ -123,7 +123,7 @@ class StageScriptedProvider implements Provider {
     this.responses[stage] = [...responses];
   }
 
-  async run(req: StageRequest, _token: vscode.CancellationToken): Promise<StageResponse> {
+  async run(req: StageRequest, _token: runtime.CancellationToken): Promise<StageResponse> {
     const queue = this.responses[req.stage];
     if (!queue || queue.length === 0) {
       throw new Error(`No stub response for stage ${req.stage} on #${req.issue}`);
@@ -147,7 +147,7 @@ class ScriptedProvidersService implements ProvidersService {
   getActive(): Provider { return this._provider; }
   list(): Provider[] { return [this._provider]; }
   setActive(_id: string): Result<void, string> { return R.ok(undefined); }
-  readonly onDidChangeProvider: vscode.Event<{ id: string }> = (() => ({ dispose: () => undefined })) as unknown as vscode.Event<{ id: string }>;
+  readonly onDidChangeProvider: runtime.Event<{ id: string }> = (() => ({ dispose: () => undefined })) as unknown as runtime.Event<{ id: string }>;
 }
 
 class FakeRunnerClient implements RunnerClientService {
@@ -167,7 +167,7 @@ class FakeRunnerClient implements RunnerClientService {
     return R.ok(null);
   }
   isPaired(): boolean { return false; }
-  readonly onDidChangePairing: vscode.Event<{ paired: boolean }> = (() => ({ dispose: () => undefined })) as unknown as vscode.Event<{ paired: boolean }>;
+  readonly onDidChangePairing: runtime.Event<{ paired: boolean }> = (() => ({ dispose: () => undefined })) as unknown as runtime.Event<{ paired: boolean }>;
 }
 
 /** Build the services container for tests. */
@@ -560,7 +560,7 @@ describe('pipeline security: test file approval', () => {
     } as StageResponse];
     // Override run to return a StageResponse directly (not a StageScriptedProvider response)
     const originalRun = provider.run.bind(provider);
-    provider.run = async (req: StageRequest, token: vscode.CancellationToken) => {
+    provider.run = async (req: StageRequest, token: runtime.CancellationToken) => {
       if (req.stage === 'test') {
         const resp = provider['responses']['test']?.shift();
         if (resp) return resp as StageResponse;

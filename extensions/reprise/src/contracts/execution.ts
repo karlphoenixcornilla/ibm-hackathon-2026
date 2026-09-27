@@ -2,7 +2,7 @@
 // FROZEN after base-v1. Change only via change request (CR).
 // Spec: 02-specs/test-execution.md, 02-specs/local-runner.md §POST /runs
 
-import type * as vscode from 'vscode';
+import type * as runtime from './runtime';
 import type { Platform, Executor as ExecutorType } from './enums';
 
 export type TestStatus = 'passed' | 'failed' | 'error' | 'skipped';
@@ -49,7 +49,7 @@ export interface Executor {
   available(): Promise<Availability>;
   run(
     req: RunRequest,
-    token: vscode.CancellationToken,
+    token: runtime.CancellationToken,
     onEvent: (event: RunEvent) => void
   ): Promise<RunResult[]>;
 }

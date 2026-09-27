@@ -1,0 +1,35 @@
+{
+  "name": "@reprise/core",
+  "version": "0.1.0",
+  "description": "Framework-agnostic Reprise engine: pipeline, stats, dedupe, security, providers, fix, verify, store, GitHub. No vscode dependency.",
+  "license": "MIT",
+  "private": true,
+  "main": "./out/src/index.js",
+  "types": "./out/src/index.d.ts",
+  "files": [
+    "out/src"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src",
+    "depcheck": "depcruise src --config .dependency-cruiser.cjs",
+    "pretest": "tsc",
+    "test": "node --test \"out/test/**/*.test.js\""
+  },
+  "devDependencies": {
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^22.0.0",
+    "@typescript-eslint/eslint-plugin": "^8.0.0",
+    "@typescript-eslint/parser": "^8.0.0",
+    "dependency-cruiser": "^16.0.0",
+    "eslint": "^9.0.0",
+    "typescript": "^5.7.0"
+  },
+  "dependencies": {
+    "js-yaml": "^4.1.0"
+  }
+}

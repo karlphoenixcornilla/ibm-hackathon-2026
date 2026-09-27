@@ -1,3 +1,5 @@
+> Historical document: pivot #29 supersedes IDE/Code-OSS and static/Pages requirements, including work in #12, #14 and #22. See [the repository README](../../README.md) for current integration instructions.
+
 # Reprise IDE — Parallel Implementation Plan (for IBM Bob)
 
 Source of truth: `docs/reprise-kit-v3/` (the "kit"). This plan re-slices the kit's phases (`04-build-plan/`) into **one base plan** followed by **five parallel tracks** with **disjoint file ownership**, so five Bob sessions (or five people) can work at the same time without merge conflicts.

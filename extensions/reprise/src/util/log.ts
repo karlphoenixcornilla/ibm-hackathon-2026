@@ -33,6 +33,6 @@ export function createLogger(tag: string): Logger {
 }
 
 function isDev(): boolean {
-  // Suppress debug logs in production builds. The bundler replaces this.
-  return process.env['NODE_ENV'] !== 'production';
+  // Hosts without Node globals do not enable debug logging implicitly.
+  return typeof process !== 'undefined' && process.env['NODE_ENV'] !== 'production';
 }

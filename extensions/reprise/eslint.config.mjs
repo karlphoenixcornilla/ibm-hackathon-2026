@@ -34,35 +34,6 @@ export default [
     },
   },
 
-  // ── Webview media files — no innerHTML ────────────────────────────────────
-  // security.md: "Webviews render with textContent only"
-  {
-    files: ['media/**/*.js', 'media/**/*.ts'],
-    languageOptions: {
-      ecmaVersion: 2020,
-      sourceType: 'module',
-    },
-    rules: {
-      'no-restricted-syntax': [
-        'error',
-        {
-          selector: 'AssignmentExpression[left.property.name="innerHTML"]',
-          message:
-            'Use textContent instead of innerHTML in webview scripts (security.md: T8 — XSS prevention).',
-        },
-        {
-          selector: 'AssignmentExpression[left.property.name="outerHTML"]',
-          message: 'Use textContent instead of outerHTML in webview scripts.',
-        },
-        {
-          selector: 'CallExpression[callee.property.name="insertAdjacentHTML"]',
-          message:
-            'Use insertAdjacentText or textContent instead of insertAdjacentHTML in webview scripts.',
-        },
-      ],
-    },
-  },
-
   // ── Ignored paths ─────────────────────────────────────────────────────────
   {
     ignores: ['out/**', 'dist/**', 'node_modules/**', '*.js'],

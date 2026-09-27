@@ -5,7 +5,7 @@
 import type { Services, PipelineService, TrialsPolicy } from '../contracts/services';
 import type { IssueRecord, IssueEvent } from '../contracts/records';
 import type { Result } from '../util/result';
-import type * as vscode from 'vscode';
+import type * as runtime from '../contracts/runtime';
 import { Result as R } from '../util/result';
 import { makeBlankRecord, touchRecord } from './record-factory';
 import { intakeStage } from './intake';
@@ -36,12 +36,12 @@ export class PipelineOrchestrator implements PipelineService {
     repo: string,
     issue: number,
     trialsOverride?: Partial<TrialsPolicy>,
-    token?: vscode.CancellationToken
+    token?: runtime.CancellationToken
   ): Promise<Result<IssueRecord, string>> {
     // Resolve cancellation token
-    const cancelToken: vscode.CancellationToken = token ?? {
+    const cancelToken: runtime.CancellationToken = token ?? {
       isCancellationRequested: false,
-      onCancellationRequested: (() => ({ dispose: () => undefined })) as unknown as vscode.Event<unknown>,
+      onCancellationRequested: (() => ({ dispose: () => undefined })) as unknown as runtime.Event<unknown>,
     };
 
     // Check preconditions (spec §0)
@@ -139,7 +139,7 @@ export class PipelineOrchestrator implements PipelineService {
     repo: string,
     issue: number,
     count: number,
-    token?: vscode.CancellationToken
+    token?: runtime.CancellationToken
   ): Promise<Result<IssueRecord, string>> {
     const loaded = await this.services.store.load(repo, issue);
     if (!loaded.ok || !loaded.value) {
@@ -161,9 +161,9 @@ export class PipelineOrchestrator implements PipelineService {
       return R.err('No additional trials possible');
     }
 
-    const cancelToken: vscode.CancellationToken = token ?? {
+    const cancelToken: runtime.CancellationToken = token ?? {
       isCancellationRequested: false,
-      onCancellationRequested: (() => ({ dispose: () => undefined })) as unknown as vscode.Event<unknown>,
+      onCancellationRequested: (() => ({ dispose: () => undefined })) as unknown as runtime.Event<unknown>,
     };
 
     const executorId = repro.run_context.executor;
