@@ -5,6 +5,7 @@ import type {
   AcknowledgeRequest, ExecResult, GitHubIssue, IssueRecord, PrCreated, PrRequest,
   RunAccepted, RunStatus, RunStreamEvent, SessionInfo,
 } from './types';
+import { readSse } from './sse';
 
 export class ApiError extends Error {
   constructor(readonly status: number, message: string) { super(message); }
@@ -32,7 +33,32 @@ export class RepriseApi {
   createPr(owner: string, repo: string, n: number, body: PrRequest) {
     return this.call<PrCreated>('POST', `/api/repos/${owner}/${repo}/issues/${n}/pr`, body);
   }
+  /** Apply a fix on the paired runner and test it there; follow the run with RunnerBridge.attach. */
+  check(owner: string, repo: string, n: number, diff: string) {
+    return this.call<RunAccepted>('POST', `/api/repos/${owner}/${repo}/issues/${n}/check`, { diff });
+  }
   getRun(id: string) { return this.call<RunStatus>('GET', `/api/runs/${id}`); }
+
+  /**
+   * Read a run's events with fetch, awaiting `onEvent` for each one before reading the
+   * next. Resolves after run.done / run.failed (or when the stream ends).
+   */
+  async streamRun(id: string, onEvent: (e: RunStreamEvent) => unknown, signal?: AbortSignal): Promise<void> {
+    const res = await this.fetchImpl(`${this.base}/api/runs/${id}/events`, {
+      credentials: 'same-origin',
+      headers: { accept: 'text/event-stream' },
+      signal,
+    });
+    if (!res.ok || !res.body) {
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      throw new ApiError(res.status, data.error ?? res.statusText);
+    }
+    await readSse(res.body, async (data) => {
+      const e = JSON.parse(data) as RunStreamEvent;
+      await onEvent(e);
+      return e.type !== 'run.done' && e.type !== 'run.failed';
+    });
+  }
   sendExecResult(runId: string, reqId: string, result: ExecResult) {
     return this.call<void>('POST', `/api/runs/${runId}/exec/${reqId}`, result);
   }
