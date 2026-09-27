@@ -9,8 +9,12 @@ import * as yaml from 'js-yaml';
 import { SESSION_COOKIE, SessionStore } from './session';
 import type { Session } from './session';
 import { RunRegistry } from './runs';
+import type { Run } from './runs';
+import { StagingStore } from './staging';
+import type { StagedFiles } from './staging';
+import type { RunnerContext } from './repo-context';
 import type { CoreFactory } from './core-factory';
-import type { PrHandler, ProposeHandler } from './handlers';
+import type { CheckHandler, PrHandler, ProposeHandler } from './handlers';
 import { PACKAGE_ROOT } from './config';
 import type { ServerConfig } from './config';
 import { sessionRoutes } from './routes/session';
@@ -31,8 +35,15 @@ export interface AppOptions {
   validateToken(token: string): Promise<string | null>;
   propose: ProposeHandler;
   pr: PrHandler;
+  check: CheckHandler;
+  /**
+   * Connect a run to the user's paired runner (through the browser). Undefined, or a
+   * connector resolving to undefined, means runs don't use a runner (mock mode).
+   */
+  connectRunner?: (run: Run, repo: string, stage: StagedFiles) => Promise<RunnerContext | undefined>;
   sessions?: SessionStore;
   runs?: RunRegistry;
+  staging?: StagingStore;
   /** false to disable logging, or pino options (e.g. { level, stream }). */
   logger?: false | Record<string, unknown>;
 }
@@ -40,6 +51,7 @@ export interface AppOptions {
 export interface AppContext extends AppOptions {
   sessions: SessionStore;
   runs: RunRegistry;
+  staging: StagingStore;
 }
 
 /** "METHOD /route" pairs reachable without a session. */
@@ -53,6 +65,7 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
     ...options,
     sessions: options.sessions ?? new SessionStore({ idleMs: 60 * 60 * 1000, absoluteMs: 8 * 60 * 60 * 1000 }),
     runs: options.runs ?? new RunRegistry(),
+    staging: options.staging ?? new StagingStore(),
   };
 
   const app = Fastify({

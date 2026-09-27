@@ -5,7 +5,7 @@ import { buildFakeCore, createNotifier, FakeGitHub, neverCancelled, Result } fro
 import type { CoreServices, IssueRecord, PipelineService, StoreService } from '@reprise/core';
 import fixture from '../fixtures/record-7.json';
 import type { Proposal } from './api/types';
-import type { PrHandler, ProposeHandler } from './handlers';
+import type { CheckHandler, PrHandler, ProposeHandler } from './handlers';
 
 export const MOCK_LOGIN = 'mock-user';
 
@@ -129,3 +129,17 @@ export const mockPrHandler: PrHandler = {
 export async function mockValidateToken(token: string): Promise<string | null> {
   return token.trim() ? MOCK_LOGIN : null;
 }
+
+/** A canned successful local check (the fix from mockProposeHandler, verified). */
+export const mockCheckHandler: CheckHandler = {
+  async check({ runner }) {
+    return {
+      base_sha: runner?.head ?? '4b825dc642cb6eb9a060e54bf8d69288fbee4904',
+      overlay_id: 'mock-overlay',
+      files: [{ path: 'app/src/main/java/LoginActivity.kt', sha256: '9f2c1a7e0b4d3c5a6e8f1b2d4c6a8e0f1b3d5c7a9e1f3b5d7c9a1e3f5b7d9c1a' }],
+      repro: { test_file: 'app/src/androidTest/LoginBiometricTest.kt', runs: 3, failed: 0, fixed: true },
+      regression: { tests_total: 42, counts: { UNCHANGED_PASS: 41, ADDED_PASSING: 1 }, blocking: [], notable: [] },
+      verdict: 'FIX_VERIFIED',
+    };
+  },
+};

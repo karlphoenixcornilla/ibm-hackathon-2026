@@ -99,3 +99,64 @@ test('a run is invisible to another session', async () => {
   const res = await app.inject({ method: 'GET', url: `/api/runs/${ack.json().runId}`, headers: { cookie: b } });
   assert.equal(res.statusCode, 404);
 });
+
+test('check returns a LocalCheck (mock)', async () => {
+  const app = await mockApp();
+  const cookie = await signIn(app);
+  const res = await app.inject({ method: 'POST', url: `${BASE}/7/check`, headers: { cookie }, payload: { diff: '--- a/x\n+++ b/x\n' } });
+  assert.equal(res.statusCode, 202);
+  const st = await waitForRun(app, cookie, res.json().runId);
+  assertMatches('RunStatus', st);
+  assert.equal(st.kind, 'check');
+  assert.equal(st.check?.verdict, 'FIX_VERIFIED');
+  assertMatches('LocalCheck', st.check);
+});
+
+test('check needs a non-empty diff', async () => {
+  const app = await mockApp();
+  const cookie = await signIn(app);
+  for (const payload of [{}, { diff: '' }]) {
+    const res = await app.inject({ method: 'POST', url: `${BASE}/7/check`, headers: { cookie }, payload });
+    assert.equal(res.statusCode, 400);
+  }
+});
+
+test('acknowledge starts a fresh stage; check gets the runner and the issue\'s stage', async () => {
+  const { StagingStore } = await import('../src/staging');
+  const { RunnerRelay } = await import('../src/runner-relay');
+  const staging = new StagingStore();
+  const old = staging.for('demo-owner/demo-app', 7);
+  old.write('leftover.js', 'x');
+  const seen: Array<{ runner: unknown; stageIsIssues: boolean }> = [];
+  const app = await mockApp({
+    staging,
+    connectRunner: async (run, _repo, stage) => ({ relay: new RunnerRelay(run, 1000), head: 'a'.repeat(40), remote: 'r', stage }),
+    check: {
+      async check(ctx) {
+        seen.push({ runner: ctx.runner, stageIsIssues: ctx.runner?.stage === staging.for('demo-owner/demo-app', 7) });
+        return (await import('../src/mock')).mockCheckHandler.check(ctx);
+      },
+    },
+  });
+  const cookie = await signIn(app);
+  const ack = await app.inject({ method: 'POST', url: `${BASE}/7/acknowledge`, headers: { cookie }, payload: {} });
+  await waitForRun(app, cookie, ack.json().runId);
+  assert.notEqual(staging.for('demo-owner/demo-app', 7), old, 'acknowledge reset the stage');
+  assert.equal(staging.for('demo-owner/demo-app', 7).has('leftover.js'), false);
+
+  const chk = await app.inject({ method: 'POST', url: `${BASE}/7/check`, headers: { cookie }, payload: { diff: 'd' } });
+  const st = await waitForRun(app, cookie, chk.json().runId);
+  assert.equal(st.state, 'succeeded', st.error ?? '');
+  assert.equal(seen.length, 1);
+  assert.ok(seen[0]!.runner);
+  assert.ok(seen[0]!.stageIsIssues);
+});
+
+test('a runner connection failure fails the run with its message', async () => {
+  const app = await mockApp({ connectRunner: async () => { throw new Error('Open the Review UI and connect your local runner, then try again.'); } });
+  const cookie = await signIn(app);
+  const res = await app.inject({ method: 'POST', url: `${BASE}/7/check`, headers: { cookie }, payload: { diff: 'd' } });
+  const st = await waitForRun(app, cookie, res.json().runId);
+  assert.equal(st.state, 'failed');
+  assert.match(st.error ?? '', /connect your local runner/);
+});
