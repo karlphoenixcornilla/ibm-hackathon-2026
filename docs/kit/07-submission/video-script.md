@@ -11,4 +11,4 @@ Length: set to the limit from gate G-15. Five platforms need tight cuts; each pl
 | Duplicate and question | Duplicate verdict; needs-info question | Concept paper answers |
 | Fix and proof | Diff review, PR, FIX_VERIFIED; then the wrong fix caught as REGRESSION_DETECTED | "Fixed means proven." |
 | Dashboard | Overview and one detail page | Application URL |
-| Close | Title card, links | Where to get it: the URL, Chrome or Edge, and the runner |
+| Close | Title card, links | Where to get it: the URL, any Chromium-based browser, and the runner |

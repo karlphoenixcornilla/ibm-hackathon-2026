@@ -15,7 +15,7 @@
 | R-12 | Duplicate detected; fix proposed and applied via diff; verification gives FIX_VERIFIED and REGRESSION_DETECTED; dashboard live | [ ] |
 | R-13 | Cost ledger verified column complete, no charges | [ ] |
 | R-14 | Dashboard URL, IDE at `/ide/`, BUILDING.md, runner on Releases (as confirmed for PD-20) | [ ] |
-| R-16 | IDE works in current desktop Chrome and Edge through the File System Access API; unsupported browsers see the unsupported-browser page | [ ] |
+| R-16 | IDE works in Chromium-based desktop browsers through the File System Access API (tested in current Chrome and Edge); browsers without the API see the unsupported-browser page | [ ] |
 
 ## Demo outcomes (rehearsal)
 

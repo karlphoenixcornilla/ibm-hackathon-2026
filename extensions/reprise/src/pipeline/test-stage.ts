@@ -36,9 +36,15 @@ export const testStage: Stage = {
           if (!writeResult.ok) {
             throw new Error(`Failed to write test file: ${writeResult.error}`);
           }
-          // Compute SHA-256 and register approval
+          // Compute SHA-256 and register approval in-process and on the runner
           const sha256 = await services.workspace.sha256(bytes);
           services.security.recordApproval(f.path, sha256);
+          // Fix #16: forward approval to the runner so POST /runs doesn't get 409
+          if (services.runnerClient.isPaired()) {
+            (services.runnerClient as unknown as { approve(p: string, s: string): Promise<unknown> })
+              .approve(f.path, sha256)
+              .catch(() => { /* runner may not be paired; ignore */ });
+          }
           record.replication.repro.test_sha256 = sha256;
         }
       }

@@ -2,8 +2,8 @@
 
 | Term | Meaning |
 | --- | --- |
-| Reprise IDE | The web build of the Code - OSS fork (R-2, R-16), opened in Chrome or Edge. |
-| Supported browser | Desktop Chrome or Microsoft Edge at the minimum versions from gate G-20 (PD-22). |
+| Reprise IDE | The web build of the Code - OSS fork (R-2, R-16), opened in a Chromium-based desktop browser. |
+| Supported browser | Any Chromium-based desktop browser that exposes the File System Access API in a secure context, such as Chrome, Edge, Brave, Opera, Vivaldi or Arc (PD-22). The startup capability check decides, not the browser's name. |
 | File System Access API | The browser API that lets the IDE read and write the local folder the user picks (R-16). |
 | Opened folder | The local repository folder the user granted the IDE access to. |
 | Reprise Runner | The Node.js program on the user's machine that runs local tests for a paired IDE tab (PD-17, `local-runner.md`). |

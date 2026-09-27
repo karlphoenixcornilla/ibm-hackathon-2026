@@ -13,8 +13,9 @@ export function activate(context: vscode.ExtensionContext): void {
   // second-layer guard and surfaces a notification if the API is absent.
   if (typeof window !== 'undefined' && !('showDirectoryPicker' in window)) {
     vscode.window.showErrorMessage(
-      'Reprise IDE needs a browser that can open folders on your computer. ' +
-        'Open this page in Google Chrome or Microsoft Edge on a desktop computer. ' +
+      'Reprise IDE needs a Chromium-based desktop browser that can open folders on your computer, ' +
+        "such as Chrome, Edge, Brave, Opera, Vivaldi or Arc. Firefox, Safari and mobile browsers aren't supported yet. " +
+        "If your browser blocks folder access, turn it on in the browser's settings or use Chrome or Edge. " +
         'You can still browse results on the dashboard.'
     );
     return;
