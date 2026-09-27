@@ -1,0 +1,53 @@
+<!-- Reprise IDE embedder page for the static Code - OSS web build.
+     Adapted from src/vs/code/browser/workbench/workbench.html at the pinned tag (ide/CODE_OSS_TAG).
+     The Code - OSS server normally fills this page in; here reprise-boot.js and reprise-workbench.js do it. -->
+<!DOCTYPE html>
+<html>
+	<head>
+		<meta charset="utf-8" />
+
+		<!-- Same policy the Code - OSS server sends for its web client (createWorkbenchContentSecurityPolicy),
+		     without the nonce: this page has no inline scripts. -->
+		<meta http-equiv="Content-Security-Policy" content="
+			default-src 'self';
+			img-src 'self' https: data: blob:;
+			media-src 'self';
+			script-src 'self' 'unsafe-eval' blob: 'sha256-daEgfo2VIXpx2Np71KqCCbkeQwv+68vPrx54XRcbdcs=' 'sha256-/r7rqQ+yrxt57sxLuQ6AMYcy/lUpvAIzHjIJt/OeLWU=';
+			child-src 'self';
+			frame-src 'self' https://*.vscode-cdn.net data:;
+			worker-src 'self' data: blob:;
+			style-src 'self' 'unsafe-inline';
+			connect-src 'self' ws: wss: https:;
+			font-src 'self' blob:;
+			manifest-src 'self';">
+
+		<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no">
+		<title>Reprise IDE</title>
+
+		<link rel="icon" href="favicon.ico" type="image/x-icon" />
+		<link rel="manifest" href="manifest.json" crossorigin="use-credentials" />
+		<link rel="stylesheet" href="out/vs/workbench/workbench.web.main.internal.css">
+
+		<style>
+			#reprise-unsupported { display: none; max-width: 36rem; margin: 20vh auto 0; padding: 0 16px; font: 16px/1.5 system-ui, sans-serif; color: #1f1f1f; }
+			#reprise-unsupported a { color: #0f62fe; }
+			html.reprise-unsupported #reprise-unsupported { display: block; }
+			@media (prefers-color-scheme: dark) {
+				html.reprise-unsupported { background: #161616; }
+				#reprise-unsupported { color: #f4f4f4; }
+				#reprise-unsupported a { color: #78a9ff; }
+			}
+		</style>
+	</head>
+
+	<body aria-label="">
+		<!-- Unsupported-browser page (docs/kit/02-specs/browser-runtime.md, "Startup check") -->
+		<main id="reprise-unsupported">
+			<h1>Reprise IDE</h1>
+			<p>Reprise IDE needs a browser that can open folders on your computer. Open this page in Google Chrome or Microsoft Edge on a desktop computer. You can still browse results on the <a href="../">dashboard</a>.</p>
+		</main>
+	</body>
+
+	<!-- Checks browser support, writes the workbench configuration, then loads the workbench -->
+	<script src="reprise-boot.js"></script>
+</html>

@@ -52,6 +52,19 @@ npm run lint        # ESLint
 npm test            # Unit tests (node --test)
 ```
 
+### Build the IDE (Code-OSS web + Reprise)
+
+`pages.yml` does this on every push to `main` and deploys it to `/ide/`. To build it yourself (Linux or macOS, or Windows with the Visual Studio C++ build tools):
+
+```bash
+git clone --depth 1 --branch "$(cat ide/CODE_OSS_TAG)" https://github.com/microsoft/vscode.git ../vscode
+# Use the Node.js version in ../vscode/.nvmrc
+node ide/build.mjs --vscode ../vscode --out _ide
+python -m http.server 8000 --bind 127.0.0.1 --directory _ide   # then open http://localhost:8000/ in Chrome or Edge
+```
+
+See `docs/kit/02-specs/ide-fork.md` for what the build changes.
+
 ### Run the runner tests
 
 ```bash
