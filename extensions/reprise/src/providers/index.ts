@@ -8,6 +8,7 @@ import type { Provider, StageRequest, StageResponse } from '../contracts/provide
 import { Result as R } from '../util/result';
 import type { Result } from '../util/result';
 import { StubProvider } from './stub-provider';
+import { BobProvider } from './bob/bob-provider';
 
 // ── Unimplemented placeholder providers ──────────────────────────────────────
 
@@ -35,11 +36,17 @@ class ProvidersServiceImpl implements ProvidersService {
     return { dispose: () => { this.listeners = this.listeners.filter((l) => l !== listener); } };
   };
 
-  constructor(workspace: Services['workspace']) {
+  constructor(services: Omit<Services, 'providers'>) {
     this.providers = [
-      new StubProvider(workspace),
+      new StubProvider(services.workspace),
+      new BobProvider({
+        runnerClient: services.runnerClient,
+        github: services.github,
+        store: services.store,
+        config: services.config,
+        workspace: services.workspace,
+      }),
       new UnimplementedProvider('claude'),
-      new UnimplementedProvider('bob'),
       new UnimplementedProvider('gemini'),
       new UnimplementedProvider('groq'),
     ];
@@ -67,7 +74,7 @@ class ProvidersServiceImpl implements ProvidersService {
 }
 
 export function createProviders(services: Omit<Services, 'providers'>): ProvidersService {
-  return new ProvidersServiceImpl(services.workspace);
+  return new ProvidersServiceImpl(services);
 }
 
 /**

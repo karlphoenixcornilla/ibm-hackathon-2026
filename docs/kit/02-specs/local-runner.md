@@ -44,6 +44,10 @@ All bodies are JSON. Field names are contracts.
 
 The IDE never sends a command, a shell, a working directory or environment variables (PD-18).
 
+### AI bridge — `POST /ai/run` (CR-1, IBM Bob)
+
+Body `{ "provider": "bob", "stage": "<intake|dedupe|test|rootcause|fix|review>", "prompt": "<rendered runtime prompt>" }`; response `{ status, last_message, task_id, stats }` from `bob run --format json` (V-6). Other body fields are ignored. The runner fixes everything else (PD-18): binary (`--bob-bin`), `--mode`, `--max-cost`, `--max-turns`, `--disable-tool-groups edit,execute,mcp,skill,todo,subagent,mode`, `--disable-mcp`, `--disable-subagents`, `--workspace <root>`. The prompt goes on stdin (never argv, max 400 000 characters); the environment passes the PD-15 filter with only `BOB_API_KEY` kept; one call at a time (409 when busy); a timeout or a closed connection kills Bob's process tree. `/pair` and `/status` report `ai: [{ provider, available, version, reason }]` from a `bob --version` probe at startup.
+
 ## Checks on `POST /runs`
 
 1. `platform` is in `.reprise.yml` under `platforms` and `local_possible` is true on this machine.

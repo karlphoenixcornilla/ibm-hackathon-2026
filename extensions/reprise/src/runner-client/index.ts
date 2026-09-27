@@ -13,11 +13,15 @@ import type {
   RunsRequest,
   RunsResponse,
   RunnerEvent,
+  AiRunRequest,
+  AiRunResponse,
+  OverlaysRequest,
+  OverlaysResponse,
 } from '../contracts/runner-api';
 import type { Result } from '../util/result';
 import { Result as R } from '../util/result';
 
-const RUNNER_BASE_URL = 'http://127.0.0.1:47410';
+const DEFAULT_RUNNER_PORT = 47410;
 const HEARTBEAT_INTERVAL_MS = 30_000; // 30 s per spec
 const HEARTBEAT_MISS_LIMIT = 2;
 
@@ -26,14 +30,21 @@ const HEARTBEAT_MISS_LIMIT = 2;
  * Services is used for views (status bar, messages) and workspace (repo check).
  */
 export function createRunnerClient(
-  services: Omit<Services, 'runnerClient'>
+  services: Omit<Services, 'runnerClient'>,
+  port: number = DEFAULT_RUNNER_PORT
 ): RunnerClientService {
-  return new RunnerClient(services);
+  return new RunnerClient(services, port);
+}
+
+/** Reduce a git remote URL (https or ssh) to "owner/repo" for comparison. */
+export function normaliseRemote(url: string): string {
+  const m = url.trim().match(/github\.com[:/]+([^/]+)\/([^/]+?)(?:\.git)?\/?$/i);
+  return m ? `${m[1]}/${m[2]}`.toLowerCase() : url.replace(/\.git$/, '').replace(/\/$/, '').toLowerCase();
 }
 
 class RunnerClient implements RunnerClientService {
   private sessionToken: string | null = null;
-  private baseUrl: string = RUNNER_BASE_URL;
+  private readonly baseUrl: string;
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private missedHeartbeats = 0;
   private _paired = false;
@@ -41,7 +52,9 @@ class RunnerClient implements RunnerClientService {
   private emitter = new vscode.EventEmitter<{ paired: boolean }>();
   readonly onDidChangePairing: vscode.Event<{ paired: boolean }> = this.emitter.event;
 
-  constructor(private readonly services: Omit<Services, 'runnerClient'>) {}
+  constructor(private readonly services: Omit<Services, 'runnerClient'>, port: number) {
+    this.baseUrl = `http://127.0.0.1:${port}`;
+  }
 
   // ── RunnerClientService ────────────────────────────────────────────────────
 
@@ -87,6 +100,27 @@ class RunnerClient implements RunnerClientService {
     return this._paired;
   }
 
+  /**
+   * CR-1: POST /ai/run — one IBM Bob stage. Bob can take minutes; the runner
+   * enforces its own timeout. Cancelling the token aborts the request, and the
+   * runner kills Bob when the connection closes.
+   */
+  async runAi(req: AiRunRequest, token?: vscode.CancellationToken): Promise<Result<AiRunResponse, string>> {
+    if (!this._paired) return R.err('Not paired with a runner');
+    const controller = new AbortController();
+    const sub = token?.onCancellationRequested(() => controller.abort());
+    try {
+      return await this.fetchRunner<AiRunResponse>('/ai/run', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(req),
+        signal: controller.signal,
+      });
+    } finally {
+      sub?.dispose();
+    }
+  }
+
   // ── Internal methods ───────────────────────────────────────────────────────
 
   /**
@@ -97,6 +131,18 @@ class RunnerClient implements RunnerClientService {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ path, sha256 } satisfies ApproveRequest),
+    });
+  }
+
+  /**
+   * POST /overlays — candidate files applied on a worktree of `base` (fix quick checks).
+   * Every file must already be approved through /approve.
+   */
+  async createOverlay(base: string, files: Array<{ path: string; content: string }>): Promise<Result<OverlaysResponse, string>> {
+    return this.fetchRunner<OverlaysResponse>('/overlays', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ base, files } satisfies OverlaysRequest),
     });
   }
 
@@ -217,9 +263,7 @@ class RunnerClient implements RunnerClientService {
     const workspaceHead = await this.detectWorkspaceHead();
 
     if (workspaceRemote && pairResp.remote) {
-      const normalise = (url: string) =>
-        url.replace(/\.git$/, '').replace(/\/$/, '').toLowerCase();
-      if (normalise(pairResp.remote) !== normalise(workspaceRemote)) {
+      if (normaliseRemote(pairResp.remote) !== normaliseRemote(workspaceRemote)) {
         // Remotes differ → refuse
         await this.disconnect();
         this.services.views.showError(
@@ -241,30 +285,32 @@ class RunnerClient implements RunnerClientService {
     this.services.views.setStatusBar('Reprise Runner: connected');
   }
 
-  private async detectWorkspaceRemote(): Promise<string | null> {
+  private async readWorkspaceText(path: string): Promise<string | null> {
     try {
-      const bytes = await this.services.workspace.readFile('.git/config');
-      const text = new TextDecoder().decode(bytes);
-      const m = text.match(/\[remote "origin"\][^\[]*url\s*=\s*(.+)/);
-      return m ? m[1].trim() : null;
+      const res = await this.services.workspace.readFile(path);
+      return res.ok ? new TextDecoder().decode(res.value) : null;
     } catch {
       return null;
     }
   }
 
+  private async detectWorkspaceRemote(): Promise<string | null> {
+    const text = await this.readWorkspaceText('.git/config');
+    if (text === null) return null;
+    const m = text.match(/\[remote "origin"\][^[]*url\s*=\s*(.+)/);
+    return m ? m[1].trim() : null;
+  }
+
   private async detectWorkspaceHead(): Promise<string | null> {
-    try {
-      const bytes = await this.services.workspace.readFile('.git/HEAD');
-      const text = new TextDecoder().decode(bytes).trim();
-      if (text.startsWith('ref: ')) {
-        const refPath = text.slice(5).trim(); // e.g. refs/heads/main
-        const refBytes = await this.services.workspace.readFile(`.git/${refPath}`);
-        return new TextDecoder().decode(refBytes).trim();
-      }
-      return text; // detached HEAD
-    } catch {
-      return null;
-    }
+    const text = (await this.readWorkspaceText('.git/HEAD'))?.trim();
+    if (!text) return null;
+    if (!text.startsWith('ref: ')) return text; // detached HEAD
+    const refPath = text.slice(5).trim(); // e.g. refs/heads/main
+    const loose = await this.readWorkspaceText(`.git/${refPath}`);
+    if (loose) return loose.trim();
+    const packed = await this.readWorkspaceText('.git/packed-refs');
+    const line = packed?.split('\n').find((l) => l.trim().endsWith(` ${refPath}`));
+    return line ? line.split(' ')[0] : null;
   }
 
   // ── Fetch helper ───────────────────────────────────────────────────────────
@@ -276,9 +322,10 @@ class RunnerClient implements RunnerClientService {
       headers?: Record<string, string>;
       body?: string;
       requiresAuth?: boolean;
+      signal?: AbortSignal;
     }
   ): Promise<Result<T, string>> {
-    const { method, headers = {}, body, requiresAuth = true } = options;
+    const { method, headers = {}, body, requiresAuth = true, signal } = options;
 
     if (requiresAuth && this.sessionToken) {
       headers['Authorization'] = `Bearer ${this.sessionToken}`;
@@ -289,6 +336,7 @@ class RunnerClient implements RunnerClientService {
         method,
         headers,
         body,
+        signal,
       });
 
       if (!response.ok) {

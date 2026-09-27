@@ -7,7 +7,7 @@
 import { mkdirSync, rmSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
-import { execSync, execFileSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 
 /**
  * Base cache directory for runner worktrees.
@@ -41,6 +41,10 @@ function repoName(root, remote) {
  * @returns {Promise<string>} Absolute path to the worktree
  */
 export async function getOrCreateWorktree(root, remote, sha) {
+  // The SHA becomes a directory name and a git argument: accept hex SHAs only.
+  if (typeof sha !== 'string' || !/^[0-9a-f]{7,40}$/i.test(sha)) {
+    throw new Error(`Invalid commit SHA "${String(sha).slice(0, 60)}"`);
+  }
   const name = repoName(root, remote);
   const worktreeDir = join(cacheBase(), name, sha);
 
@@ -53,7 +57,7 @@ export async function getOrCreateWorktree(root, remote, sha) {
   try {
     // Fetch the ref in case it isn't present locally
     try {
-      execSync(`git fetch --quiet origin ${sha}`, {
+      execFileSync('git', ['fetch', '--quiet', 'origin', sha], {
         cwd: root,
         stdio: ['pipe', 'pipe', 'pipe'],
         encoding: 'utf8',

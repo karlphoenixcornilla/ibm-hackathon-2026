@@ -4,9 +4,16 @@
 //
 // Usage: node build.mjs
 // Output: dist/reprise-runner.mjs  +  dist/reprise-runner.mjs.sha256
+//
+// A small module-registry bundler with no dependencies. Each source module is
+// wrapped in its own function scope (so top-level names never collide), local
+// imports become registry lookups, and `node:` imports are hoisted once to the
+// top of the bundle. It supports the import/export forms this package uses:
+//   import x from 'node:m' | import { a, b as c } from '...' | import * as ns from '...'
+//   export function|async function|const|let|class name
 
-import { readFileSync, writeFileSync, mkdirSync, readdirSync, statSync } from 'node:fs';
-import { join, resolve, dirname, relative, basename } from 'node:path';
+import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { join, resolve, dirname, relative } from 'node:path';
 import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 
@@ -16,100 +23,110 @@ const ENTRY = resolve(__dirname, 'reprise-runner.mjs');
 const OUT_DIR = resolve(__dirname, 'dist');
 const OUT_FILE = join(OUT_DIR, 'reprise-runner.mjs');
 
-/**
- * Collect every .mjs file under srcDir, returning { relPath -> content }.
- * @param {string} srcDir
- * @param {string} base
- * @param {Map<string, string>} acc
- */
-function collectFiles(srcDir, base, acc) {
-  for (const entry of readdirSync(srcDir)) {
-    const full = join(srcDir, entry);
-    const rel = relative(base, full);
-    if (statSync(full).isDirectory()) {
-      collectFiles(full, base, acc);
-    } else if (entry.endsWith('.mjs')) {
-      acc.set(rel.replace(/\\/g, '/'), readFileSync(full, 'utf8'));
-    }
-  }
+const IMPORT_RE = /^import\s+(?:([\s\S]+?)\s+from\s+)?['"]([^'"]+)['"]\s*;?[ \t]*$/gm;
+
+/** `{ a, b as c }` → `{ a, b: c }` */
+function toDestructure(clause) {
+  return clause.replace(/\s+as\s+/g, ': ');
+}
+
+/** Stable identifier for a node builtin namespace, e.g. node:child_process → __node_child_process */
+function nodeNs(spec) {
+  return `__node_${spec.replace(/^node:/, '').replace(/[^A-Za-z0-9_]/g, '_')}`;
 }
 
 /**
- * Very simple bundler: inlines every local import into a single file.
- * Rewrites `import ... from './foo.mjs'` → module code inlined as a
- * module-scoped IIFE, then re-exports via a Map.
- *
- * For hackathon purposes this is intentionally simple: it walks imports
- * depth-first and concatenates the modules in dependency order, replacing
- * relative import paths with the already-defined binding names.
+ * Convert an import clause into a declaration that reads from `source`.
+ * @param {string} clause  e.g. "http", "{ a, b as c }", "* as ns", "def, { a }"
+ * @param {string} source  expression yielding the module namespace
  */
+function bindImport(clause, source) {
+  const out = [];
+  let rest = clause.trim();
+  const star = rest.match(/^\*\s+as\s+(\w+)$/);
+  if (star) return `const ${star[1]} = ${source};`;
+  const def = rest.match(/^(\w+)\s*(?:,\s*([\s\S]*))?$/);
+  if (def) {
+    out.push(`const ${def[1]} = ${source}.default;`);
+    rest = (def[2] ?? '').trim();
+  }
+  if (rest.startsWith('{')) out.push(`const ${toDestructure(rest)} = ${source};`);
+  return out.join(' ');
+}
+
 function bundle() {
-  const srcDir = resolve(__dirname, 'src');
-  /** @type {Map<string, string>} relPath (from srcDir) -> source */
-  const modules = new Map();
-  collectFiles(srcDir, __dirname, modules);
+  /** @type {Map<string, string>} module id (path relative to runner/) → wrapped factory */
+  const factories = new Map();
+  /** @type {Set<string>} node builtin specifiers */
+  const builtins = new Set();
 
-  // Also include the entry point
-  const entryContent = readFileSync(ENTRY, 'utf8');
+  /** @param {string} absPath */
+  function addModule(absPath) {
+    const id = relative(__dirname, absPath).replace(/\\/g, '/');
+    if (factories.has(id)) return id;
+    factories.set(id, ''); // reserve (handles cycles)
 
-  // Simple concatenation: strip import declarations, inline modules.
-  // Real bundling would need a proper resolver; for single-file output
-  // we do a depth-first inline where each file is wrapped in a comment.
+    let code = readFileSync(absPath, 'utf8').replace(/\r\n/g, '\n').replace(/^#!.*\n/, '');
 
-  /** @type {Set<string>} */
-  const visited = new Set();
-  /** @type {string[]} */
-  const chunks = [];
+    code = code.replace(IMPORT_RE, (_m, clause, spec) => {
+      if (spec.startsWith('node:')) {
+        builtins.add(spec);
+        return clause ? bindImport(clause, nodeNs(spec)) : '';
+      }
+      if (spec.startsWith('.')) {
+        const depId = addModule(resolve(dirname(absPath), spec));
+        return clause ? bindImport(clause, `__load(${JSON.stringify(depId)})`) : `__load(${JSON.stringify(depId)});`;
+      }
+      throw new Error(`${id}: bare import "${spec}" is not supported (the runner has no dependencies)`);
+    });
 
-  /**
-   * @param {string} filePath  absolute path
-   */
-  function inlineFile(filePath) {
-    const rel = relative(__dirname, filePath).replace(/\\/g, '/');
-    if (visited.has(rel)) return;
-    visited.add(rel);
-
-    const content = modules.get(rel) ?? readFileSync(filePath, 'utf8');
-
-    // Collect local imports first (depth-first)
-    const importRe = /^import\s+(?:[\s\S]+?\s+from\s+)?['"](\.[^'"]+)['"]/gm;
-    let m;
-    while ((m = importRe.exec(content)) !== null) {
-      const importedRel = resolve(dirname(filePath), m[1]).replace(/\\/g, '/');
-      inlineFile(importedRel);
+    /** @type {string[]} */
+    const exported = [];
+    code = code.replace(/^export\s+(async\s+function\*?|function\*?|const|let|class)\s+(\w+)/gm, (_m, kind, name) => {
+      exported.push(name);
+      return `${kind} ${name}`;
+    });
+    if (/^export\s/m.test(code)) {
+      throw new Error(`${id}: unsupported export form (use "export function|const|let|class name")`);
     }
 
-    // Rewrite: remove import declarations for local modules (already inlined)
-    const stripped = content
-      .replace(/^import\s+[\s\S]+?\s+from\s+['"](\.[^'"]+)['"]\s*;?\s*$/gm, '// (inlined: $1)')
-      .replace(/^import\s+['"](\.[^'"]+)['"]\s*;?\s*$/gm, '// (inlined: $1)');
-
-    chunks.push(`\n// ── ${rel} ──────────────────────────────────\n${stripped}`);
+    const exportsObj = exported.map((n) => `get ${n}() { return ${n}; }`).join(', ');
+    factories.set(
+      id,
+      `// ── ${id} ${'─'.repeat(Math.max(0, 60 - id.length))}\n` +
+        `__define(${JSON.stringify(id)}, (__exports) => {\n${code}\nObject.defineProperties(__exports, Object.getOwnPropertyDescriptors({ ${exportsObj} }));\n});\n`,
+    );
+    return id;
   }
 
-  // Walk all src files
-  for (const rel of [...modules.keys()].sort()) {
-    inlineFile(resolve(__dirname, rel));
-  }
+  const entryId = addModule(ENTRY);
 
-  // Entry point (reprise-runner.mjs itself, already covered above)
-  const entryStripped = entryContent
-    .replace(/^import\s+[\s\S]+?\s+from\s+['"](\.[^'"]+)['"]\s*;?\s*$/gm, '// (inlined: $1)');
-
-  const banner = `#!/usr/bin/env node
+  const header = `#!/usr/bin/env node
 // reprise-runner.mjs — Reprise Runner (bundled single file)
 // Built: ${new Date().toISOString()}
 // Spec: 02-specs/local-runner.md
 `;
-
-  const output = banner + chunks.join('\n') + '\n\n// ── entry ──\n' + entryStripped;
+  const imports = [...builtins].sort().map((s) => `import * as ${nodeNs(s)} from '${s}';`).join('\n');
+  const runtime = `
+const __factories = new Map();
+const __cache = new Map();
+function __define(id, factory) { __factories.set(id, factory); }
+function __load(id) {
+  if (__cache.has(id)) return __cache.get(id);
+  const exports = {};
+  __cache.set(id, exports);
+  __factories.get(id)(exports);
+  return exports;
+}
+`;
+  const output =
+    header + imports + '\n' + runtime + '\n' + [...factories.values()].join('\n') + `\n__load(${JSON.stringify(entryId)});\n`;
 
   mkdirSync(OUT_DIR, { recursive: true });
   writeFileSync(OUT_FILE, output, 'utf8');
 
-  // SHA-256
   const sha256 = createHash('sha256').update(output, 'utf8').digest('hex');
-  writeFileSync(OUT_FILE + '.sha256', sha256 + '\n', 'utf8');
+  writeFileSync(OUT_FILE + '.sha256', `${sha256}  reprise-runner.mjs\n`, 'utf8');
 
   const kb = (Buffer.byteLength(output, 'utf8') / 1024).toFixed(1);
   console.log(`Built: ${OUT_FILE}  (${kb} KB)`);

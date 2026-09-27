@@ -199,3 +199,5 @@ function last200Lines(text: string): string {
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
+
+export { setUpCiRuns, SETUP_BRANCH } from './setup';

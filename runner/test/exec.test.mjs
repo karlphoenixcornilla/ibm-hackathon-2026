@@ -168,3 +168,20 @@ describe('runCommand — output_tail capped at 200 lines', () => {
     assert.ok(lines.length <= 200, `output_tail should have ≤200 lines, got ${lines.length}`);
   });
 });
+
+// ── Output capture (regression: detached children on Windows lost all output,
+//    so every run looked like a silent pass) ─────────────────────────────────
+
+describe('runCommand output capture', () => {
+  it('captures stdout and the exit code through the platform shell', async () => {
+    const { runCommand: run } = await import('../src/exec.mjs');
+    const shell = process.platform === 'win32' ? 'powershell' : 'bash';
+    const r = await run({
+      platform: 'linux', command: 'node -e "console.log(\'reprise-out\'); process.exit(3)"', shell,
+      cwd: process.cwd(), testPath: '', timeoutMs: 30_000, reportPath: '', reportFormat: 'junit',
+      hostOs: process.platform, device: '', envRemove: [], envKeep: [], onOutput: () => {},
+    });
+    assert.match(r.output_tail, /reprise-out/);
+    assert.notEqual(r.exit_code, 0); // PowerShell 5 reports any failing native command as 1
+  });
+});

@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<!-- Reprise IDE host page for the Code-OSS web build (vscode-web-min).
+     Unverified until gates G-1/G-5 pass; modelled on src/vs/code/browser/workbench/workbench.html.
+     __BASE__ and __HOST__ are filled in by .github/workflows/pages.yml. -->
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Reprise IDE</title>
+  <meta id="vscode-workbench-web-configuration" data-settings='{"additionalBuiltinExtensions":[{"scheme":"https","authority":"__HOST__","path":"__BASE__/extension"}],"productConfiguration":{"nameShort":"Reprise","nameLong":"Reprise IDE","applicationName":"reprise","enableTelemetry":false}}'>
+  <meta id="vscode-workbench-auth-session" data-settings="">
+  <link rel="stylesheet" href="__BASE__/vscode-web/out/vs/workbench/workbench.web.main.css">
+</head>
+<body aria-label="">
+  <noscript>Reprise IDE needs JavaScript, and runs in Google Chrome or Microsoft Edge on desktop.</noscript>
+  <script>
+    if (!('showDirectoryPicker' in window)) {
+      document.body.textContent = 'Reprise IDE needs a browser that can open folders on your computer. Open this page in Google Chrome or Microsoft Edge on a desktop computer. You can still browse results on the dashboard.';
+    }
+    globalThis._VSCODE_FILE_ROOT = new URL('__BASE__/vscode-web/out/', window.location.origin).toString();
+  </script>
+  <script src="__BASE__/vscode-web/out/nls.messages.js"></script>
+  <script type="module" src="__BASE__/vscode-web/out/vs/code/browser/workbench/workbench.js"></script>
+</body>
+</html>

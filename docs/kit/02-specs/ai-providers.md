@@ -54,7 +54,7 @@ Behaviour:
 | Id | Notes for implementation later |
 | --- | --- |
 | `claude` | Claude API with tool use; model string and API details to be verified from official docs at implementation time |
-| `bob` | IBM Bob Shell `bob run` headless with JSON output, cost and turn caps, tool groups disabled except read (and edit only if file proposals are needed) (V-6) |
+| `bob` | **Implemented** (`src/providers/bob/`): renders `03-runtime-prompts/<stage>.md` with the stage schema, sends it through the runner's `POST /ai/run` (`local-runner.md` §AI bridge) to `bob run --format json`, read tools only; file proposals come back in the JSON under `files`; one repair attempt. Default provider (`reprise.provider: bob`). |
 | `gemini` | To be researched at implementation time |
 | `groq` | To be researched at implementation time |
 

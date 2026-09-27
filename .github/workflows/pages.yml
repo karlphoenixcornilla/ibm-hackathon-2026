@@ -1,0 +1,113 @@
+# pages.yml — build and deploy the dashboard (/) and Reprise IDE (/ide/) to GitHub Pages.
+# Spec: 02-specs/dashboard.md, 06-deployment/deployment.md, 05-dashboard-and-deploy.md
+#
+# Always: dashboard from the reprise-data branches in dashboard/repos.json (sample data
+#         when none exist) and the web extension at /ide/extension/ (loadable in vscode.dev
+#         via "Developer: Install Extension from Location…", the G-2 fallback).
+# Opt-in: the rebranded Code-OSS web build at /ide/ when the repository variable
+#         REPRISE_BUILD_IDE is "true" (gates G-1/G-5: long build, not yet verified).
+#
+# Settings → Pages → Source: GitHub Actions.
+
+name: Pages
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 */6 * * *"
+  push:
+    branches: [main, reprise/main]
+    paths:
+      - "dashboard/**"
+      - "extensions/reprise/**"
+      - ".github/workflows/pages.yml"
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+env:
+  # Pinned Code-OSS tag for the opt-in IDE build (G-1). Override with the VSCODE_TAG variable.
+  VSCODE_TAG: ${{ vars.VSCODE_TAG || '1.104.0' }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      # ── Dashboard ──────────────────────────────────────────────────────────
+      - name: Install dashboard fonts (IBM Plex, OFL)
+        working-directory: dashboard
+        run: npm install --no-save --no-audit --no-fund || echo "fonts unavailable; system font stack"
+
+      - name: Build dashboard
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node dashboard/build.mjs --out _site
+
+      # ── Web extension (always) ─────────────────────────────────────────────
+      - name: Build Reprise extension
+        working-directory: extensions/reprise
+        run: |
+          npm ci --no-audit --no-fund
+          npm run compile
+
+      - name: Publish extension at /ide/extension/
+        run: |
+          mkdir -p _site/ide/extension
+          cp extensions/reprise/package.json _site/ide/extension/
+          cp -r extensions/reprise/dist extensions/reprise/media _site/ide/extension/
+
+      # ── Code-OSS web IDE (opt-in) ─────────────────────────────────────────
+      - name: Build Code-OSS web (vscode-web-min)
+        if: ${{ vars.REPRISE_BUILD_IDE == 'true' }}
+        run: |
+          sudo apt-get update && sudo apt-get install -y libkrb5-dev libx11-dev libxkbfile-dev libsecret-1-dev
+          git clone --depth 1 --branch "$VSCODE_TAG" https://github.com/microsoft/vscode.git ../vscode
+          cd ../vscode
+          # PD-4 / G-3: only the product.json fields; no gallery; trademark fixes (G-4)
+          jq '.nameShort="Reprise" | .nameLong="Reprise IDE" | .applicationName="reprise"
+              | .dataFolderName=".reprise-ide" | .urlProtocol="reprise"
+              | del(.extensionsGallery) | .linkProtectionTrustedDomains=["https://github.com"]' \
+              product.json > product.tmp && mv product.tmp product.json
+          npm ci
+          npm run gulp vscode-web-min
+          cp -r ../vscode-web "$GITHUB_WORKSPACE/_site/ide/"
+
+      - name: IDE host page
+        if: ${{ vars.REPRISE_BUILD_IDE == 'true' }}
+        run: |
+          base="/${GITHUB_REPOSITORY#*/}/ide"
+          sed -e "s#__BASE__#${base}#g" -e "s#__HOST__#${GITHUB_REPOSITORY_OWNER,,}.github.io#g" \
+            dashboard/ide/workbench.html > _site/ide/index.html
+
+      - name: IDE placeholder (Code-OSS build not enabled)
+        if: ${{ vars.REPRISE_BUILD_IDE != 'true' }}
+        run: |
+          ext="https://${GITHUB_REPOSITORY_OWNER,,}.github.io/${GITHUB_REPOSITORY#*/}/ide/extension/"
+          sed "s#__EXT_URL__#${ext}#g" dashboard/ide/placeholder.html > _site/ide/index.html
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

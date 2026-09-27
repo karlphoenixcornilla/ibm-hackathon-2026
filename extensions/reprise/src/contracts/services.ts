@@ -7,7 +7,7 @@ import type * as vscode from 'vscode';
 import type { IssueRecord } from './records';
 import type { Provider } from './provider';
 import type { Executor, RunResult } from './execution';
-import type { PairResponse, StatusResponse } from './runner-api';
+import type { PairResponse, StatusResponse, AiRunRequest, AiRunResponse } from './runner-api';
 import type { Result } from '../util/result';
 
 // ── Config ───────────────────────────────────────────────────────────────────
@@ -112,6 +112,13 @@ export interface GitHubIssue {
   updated_at: string;
 }
 
+/** CR-1: issue body and comments, needed to build the untrusted report for real providers. */
+export interface GitHubIssueDetail extends GitHubIssue {
+  body: string;
+  user: string;
+  comments: Array<{ user: string; body: string; created_at: string }>;
+}
+
 export interface GitHubService {
   /** Detect owner/repo from .git/config in the opened folder. */
   detectRepo(): Promise<Result<string, string>>;
@@ -127,6 +134,25 @@ export interface GitHubService {
   dispatchWorkflow(repo: string, inputs: Record<string, string | number>): Promise<Result<{ runId: number }, string>>;
   /** Download a workflow artifact by URL and return unpacked JSON. */
   downloadArtifact(url: string, token: string): Promise<Result<Record<string, unknown>, string>>;
+  /** CR-1: get one issue with its body and comments (untrusted report for real providers). */
+  getIssue?(repo: string, issue: number): Promise<Result<GitHubIssueDetail, string>>;
+  /** CR-1: the repository's default branch (PR base). */
+  getDefaultBranch?(repo: string): Promise<Result<string, string>>;
+  /**
+   * CR-1: commit full-content files to `branch` in one commit through the Git Data API
+   * (PD-19). Creates the branch from `base` (branch name or SHA) when it does not exist.
+   */
+  commitFiles?(
+    repo: string,
+    branch: string,
+    base: string,
+    files: Array<{ path: string; content: string }>,
+    message: string
+  ): Promise<Result<{ sha: string; parent: string }, string>>;
+  /** CR-1: turn a draft PR into a ready-for-review PR (PD-28). */
+  markPrReady?(repo: string, prNumber: number): Promise<Result<void, string>>;
+  /** CR-1: post a comment on an issue or PR (PD-6, off by default). */
+  comment?(repo: string, issueOrPr: number, body: string): Promise<Result<{ html_url: string }, string>>;
 }
 
 // ── Workspace ─────────────────────────────────────────────────────────────────
@@ -170,6 +196,11 @@ export interface ViewsService {
   showInfo(message: string, ...actions: string[]): Thenable<string | undefined>;
   /** Show an error message. */
   showError(message: string): void;
+  /**
+   * CR-1 (PD-10): show a proposed file as a diff against the current content and
+   * ask the user to approve it. Resolves true only on an explicit approval.
+   */
+  approveFile?(path: string, content: string, reason: string): Promise<boolean>;
 }
 
 // ── Runner client ─────────────────────────────────────────────────────────────
@@ -185,6 +216,12 @@ export interface RunnerClientService {
   isPaired(): boolean;
   /** Fire when pairing state changes. */
   onDidChangePairing: vscode.Event<{ paired: boolean }>;
+  /** CR-1: run one AI stage through the runner's /ai/run bridge (IBM Bob). */
+  runAi?(req: AiRunRequest, token?: vscode.CancellationToken): Promise<Result<AiRunResponse, string>>;
+  /** CR-1: tell the runner the user approved this exact file (POST /approve, PD-10). */
+  approve?(path: string, sha256: string): Promise<Result<{ ok: boolean }, string>>;
+  /** CR-1: register candidate files as an overlay on `base` (POST /overlays). */
+  createOverlay?(base: string, files: Array<{ path: string; content: string }>): Promise<Result<{ overlay_id: string }, string>>;
 }
 
 // ── Executors ─────────────────────────────────────────────────────────────────

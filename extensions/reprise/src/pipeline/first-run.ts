@@ -5,6 +5,7 @@
 import type { Stage, PipelineContext, StageResult } from './types';
 import type { TestOutput } from '../contracts/provider';
 import { classifyTrial } from '../stats/stats';
+import { approveAndWriteTest } from './approve-file';
 import { touchRecord } from './record-factory';
 
 export const firstRunStage: Stage = {
@@ -97,15 +98,11 @@ export const firstRunStage: Stage = {
           record.usage.calls += resp.usage.calls;
           record.usage.by_stage.test = (record.usage.by_stage.test ?? 0) + resp.usage.calls;
 
-          // Write revised test file
-          if (resp.files.length > 0) {
-            for (const f of resp.files) {
-              const bytes = new TextEncoder().encode(f.content);
-              await services.workspace.writeFile(f.path, bytes);
-              const sha256 = await services.workspace.sha256(bytes);
-              services.security.recordApproval(f.path, sha256);
-              repro.test_sha256 = sha256;
-            }
+          // The revised test needs approval again before it is written or run (PD-10)
+          for (const f of resp.files) {
+            const approved = await approveAndWriteTest(ctx, f, resp.provider);
+            if (!approved.ok) throw new Error(approved.error);
+            repro.test_sha256 = approved.sha256;
           }
           repro.test_file = revised.test_file;
           repro.signature = revised.signature;

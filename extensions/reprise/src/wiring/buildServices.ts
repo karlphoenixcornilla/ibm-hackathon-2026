@@ -1,13 +1,13 @@
 // wiring/buildServices.ts — compose the Services container
-// Owned by: Integration (after base-v1).
-// At base-v1: returns fakes when reprise.dev.useFakes is true,
-// otherwise returns each module's real factory — which currently returns its own fake
-// until the track replaces it.
+// Owned by: Integration (99-integration.md task 1).
+// Real implementations by default; `reprise.dev.useFakes` switches to the
+// in-memory fakes for demos without a repository, runner or GitHub token.
 //
 // Spec: 00-base.md §B4, architecture.md §Extension layout
 
 import * as vscode from 'vscode';
-import type { Services } from '../contracts/services';
+import type { Services, ViewsService } from '../contracts/services';
+import type { Executor, RunEvent, RunRequest } from '../contracts/execution';
 
 // Fakes
 import { FakeConfig } from '../fakes/FakeConfig';
@@ -25,36 +25,35 @@ import { FakeFix } from '../fakes/FakeFix';
 import { FakeVerify } from '../fakes/FakeVerify';
 import { FakeSecurity } from '../fakes/FakeSecurity';
 
-// Real module factories (each returns its own fake until the track implements it)
+// Real module factories
 import { createConfig } from '../config/config';
-
-// T1 real factories
 import { createAuth } from '../auth/index';
 import { createWorkspace } from '../workspace/index';
 import { createGitHub } from '../github/index';
 import { createStore } from '../store/index';
 import { createViews } from '../views/index';
+import { createRunnerClient } from '../runner-client/index';
+import { createLocalExecutor } from '../exec/local/index';
+import { createCiExecutor } from '../exec/ci/index';
+import { createProviders } from '../providers/index';
+import { createPipeline } from '../pipeline/index';
+import { createStats } from '../stats/index';
+import { createSecurity } from '../security/index';
+import { createFix } from '../fix/index';
+import { createVerify } from '../verify/index';
 
 /**
  * Build the complete Services container.
  *
  * When `reprise.dev.useFakes` is true, every service is a fully in-memory fake
  * so the extension can be demoed without a real repository, runner or GitHub token.
- *
- * Otherwise, each module's real factory is called. At base-v1 every factory
- * except `config/` throws "Not implemented yet (track Tn)"; each track replaces
- * only the body of its own factory.
  */
 export function buildServices(context: vscode.ExtensionContext): Services {
   const useFakes = vscode.workspace
     .getConfiguration('reprise.dev')
     .get<boolean>('useFakes', false);
 
-  if (useFakes) {
-    return buildFakeServices();
-  }
-
-  return buildRealServices(context);
+  return useFakes ? buildFakeServices() : buildRealServices(context);
 }
 
 function buildFakeServices(): Services {
@@ -79,60 +78,100 @@ function buildFakeServices(): Services {
   };
 }
 
-function buildRealServices(context: vscode.ExtensionContext): Services {
-  // Config is fully implemented by base.
-  const config = createConfig();
+/** Run tracking that the real views expose beyond the contract. */
+interface RunTracking {
+  onRunStarted(key: number, label: string): void;
+  onRunFinished(key: number): void;
+}
 
-  // T1: real auth (SecretStorage, G-7 built-in provider, PD-23 token)
-  const auth = createAuth(context);
-
-  // T1: real workspace (workspace.fs + .git parsing)
-  const workspace = createWorkspace();
-
-  // Partial services needed for github factory
-  const partialForGitHub = { auth, config };
-
-  // T1: real GitHub service (REST + Git Data API)
-  const github = createGitHub({
-    ...partialForGitHub,
-    workspaceReader: async (path: string) => {
-      const r = await workspace.readFile(path);
-      if (!r.ok) { return null; }
-      return new TextDecoder().decode(r.value);
+/**
+ * Wrap an executor so every run appears in the Runs view and its output
+ * streams to the "Reprise Runs" output channel.
+ */
+function trackRuns(exec: Executor, views: ViewsService & Partial<RunTracking>, out: vscode.OutputChannel): Executor {
+  let seq = 0;
+  return {
+    id: exec.id,
+    available: () => exec.available(),
+    async run(req: RunRequest, token: vscode.CancellationToken, onEvent: (e: RunEvent) => void) {
+      const key = Date.now() * 1000 + (seq++ % 1000);
+      const what = req.mode === 'single' ? req.test_path : `test.${req.mode}`;
+      const label = `${exec.id === 'local' ? 'This machine' : 'CI'}: ${req.platform} ${what} ×${req.runs}`;
+      views.onRunStarted?.(key, label);
+      out.appendLine(`▶ ${label}${req.ref ? ` @ ${JSON.stringify(req.ref)}` : ''}`);
+      try {
+        const results = await exec.run(req, token, (e) => {
+          if (e.type === 'output') out.appendLine(e.line);
+          else if (e.type === 'result') out.appendLine(`  result: exit ${e.result.exit_code}${e.result.timed_out ? ' (timed out)' : ''}, ${e.result.duration_ms} ms`);
+          else if (e.type === 'error') out.appendLine(`  error: ${e.message}`);
+          onEvent(e);
+        });
+        out.appendLine(`■ ${label}: ${results.length} result(s)`);
+        return results;
+      } catch (err) {
+        out.appendLine(`✖ ${label}: ${err instanceof Error ? err.message : String(err)}`);
+        throw err;
+      } finally {
+        views.onRunFinished?.(key);
+      }
     },
+  };
+}
+
+function buildRealServices(context: vscode.ExtensionContext): Services {
+  // One container, filled in dependency order. Factories keep a reference to it
+  // and read the services they call at call time, so late entries are visible.
+  const s = {} as Services;
+
+  s.config = createConfig();
+  s.auth = createAuth(context);
+  s.workspace = createWorkspace();
+  s.github = createGitHub({
+    auth: s.auth,
+    config: s.config,
+    workspaceReader: async (path: string) => {
+      const r = await s.workspace.readFile(path);
+      return r.ok ? new TextDecoder().decode(r.value) : null;
+    },
+    workspaceRoot: () => s.workspace.getRootUri()?.toString() ?? null,
   });
+  s.store = createStore({ github: s.github });
+  s.security = createSecurity(s);
+  s.stats = createStats(s);
+  s.views = createViews(s, context);
 
-  // T1: real store (reprise-data branch + IndexedDB cache)
-  const store = createStore({ github });
+  const port = vscode.workspace.getConfiguration('reprise').get<number>('runnerPort', 47410);
+  s.runnerClient = createRunnerClient(s, port);
 
-  // Remaining stubs
-  const runnerClient = new FakeRunnerClient();   // T2 replaces
-  const executors = {
-    local: new FakeExecutor('local'),            // T2 replaces
-    ci: new FakeExecutor('ci'),                  // T4 replaces
-  };
-  const providers = new FakeProvider();          // T3 replaces
-  const pipeline = new FakePipeline();           // T3 replaces
-  const stats = new FakeStats();                 // T3 replaces
-  const fix = new FakeFix();                     // T4 replaces
-  const verify = new FakeVerify();               // T4 replaces
-  const security = new FakeSecurity();           // T3 replaces
-
-  // Build a partial services object so views can reference other services
-  const partial: Omit<Services, 'views'> = {
-    config, auth, github, store, workspace,
-    runnerClient, executors, providers, pipeline, stats, fix, verify, security,
+  const runsOutput = vscode.window.createOutputChannel('Reprise Runs');
+  context.subscriptions.push(runsOutput);
+  const views = s.views as ViewsService & Partial<RunTracking>;
+  s.executors = {
+    local: trackRuns(createLocalExecutor(s), views, runsOutput),
+    ci: trackRuns(createCiExecutor(s), views, runsOutput),
   };
 
-  // T1: real views (trees, webview panel, status bar)
-  const views = createViews(
-    // views needs the full Services object; we cast here because at this point
-    // all services are wired. The views factory only reads services.github,
-    // services.store, and services.views (for error reporting).
-    { ...partial, views: new FakeViews() } as Services,
-    context
+  s.providers = createProviders(s);
+  s.pipeline = createPipeline(s);
+  s.fix = createFix(s);
+  s.verify = createVerify(s);
+
+  applyProviderSetting(s);
+  context.subscriptions.push(
+    vscode.workspace.onDidChangeConfiguration((e) => {
+      if (e.affectsConfiguration('reprise.provider')) applyProviderSetting(s);
+    })
   );
 
-  // Replace the placeholder views ref with the real one
-  return { ...partial, views };
+  return s;
+}
+
+/** Activate the provider named by `reprise.provider` (default: bob). */
+function applyProviderSetting(s: Services): void {
+  const id = vscode.workspace.getConfiguration('reprise').get<string>('provider', 'bob');
+  if (id === s.providers.getActive().id) return;
+  const r = s.providers.setActive(id);
+  if (!r.ok) {
+    vscode.window.showWarningMessage(`Reprise: ${r.error}. Using ${s.providers.getActive().id}.`);
+  }
 }

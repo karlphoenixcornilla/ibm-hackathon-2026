@@ -1,0 +1,221 @@
+{
+  "schema": 3,
+  "repo": "reprise-demo/field-notes",
+  "issue": 7,
+  "title": "Login screen closes after cancelling the fingerprint prompt",
+  "url": "https://github.com/reprise-demo/field-notes/issues/7",
+  "state": "FIX_VERIFIED",
+  "provider": "bob",
+  "stubbed": false,
+  "created_at": "2026-09-26T09:00:00.000Z",
+  "updated_at": "2026-09-26T09:47:00.000Z",
+  "replication": {
+    "verdict": "FLAKY",
+    "acknowledged_by": "maintainer",
+    "started_at": "2026-09-26T09:00:00.000Z",
+    "finished_at": "2026-09-26T09:07:00.000Z",
+    "duration_ms": 420000,
+    "fingerprint": {
+      "platform": "android",
+      "component": "login",
+      "functions": [
+        "LoginActivity.onBiometricResult"
+      ],
+      "symptom": "Activity finishes when the biometric prompt is cancelled",
+      "trigger": "Cancel the fingerprint prompt twice quickly",
+      "expected": "Stay on the login screen",
+      "actual": "The app returns to the launcher",
+      "error_signature": "NullPointerException"
+    },
+    "duplicate": {
+      "of": null,
+      "score": null,
+      "fields": {},
+      "reason": "",
+      "behaviour_check": null
+    },
+    "question": "",
+    "repro": {
+      "test_origin": "provided",
+      "test_file": "app/src/androidTest/java/LoginBiometricTest.kt",
+      "test_sha256": "a3f1a3f1a3f1a3f1a3f1a3f1a3f1a3f1a3f1a3f1a3f1a3f1a3f1a3f1a3f1a3f1",
+      "branch": "reprise/repro-7",
+      "signature": {
+        "kind": "assertion_message",
+        "pattern": "REPRISE-7 login screen lost"
+      },
+      "attempts": 1,
+      "run_context": {
+        "platform": "android",
+        "executor": "local",
+        "method": "repo_command",
+        "host_os": "linux",
+        "device": "Pixel 7 emulator (API 34)",
+        "ci_run_url": null,
+        "runner_version": "0.1.0"
+      },
+      "trials": 21,
+      "failed": 4,
+      "invalid": 0,
+      "sequence": "PPPFPPPPFPPPPPFPPPPFP",
+      "trials_policy": {
+        "min": 10,
+        "max": 20,
+        "limit": 100,
+        "max_minutes": null,
+        "source": "config",
+        "stopped_by": "max_reached"
+      },
+      "rate": 0.19047619047619047,
+      "wilson_low": 0.07667565052761793,
+      "wilson_high": 0.40000564690204926
+    },
+    "diagnosis": {
+      "summary": "onBiometricResult dereferences the callback after the prompt was cancelled and the fragment detached.",
+      "locations": [
+        {
+          "file": "app/src/main/java/LoginActivity.kt",
+          "start_line": 88,
+          "end_line": 104,
+          "reason": "callback used after onDetach cleared it"
+        }
+      ],
+      "fix_direction": "Ignore results that arrive after the prompt is cancelled, and clear the pending callback in one place.",
+      "confidence": "high",
+      "accepted_by": "maintainer",
+      "edited": false
+    }
+  },
+  "fix": {
+    "iterations": [
+      {
+        "n": 1,
+        "source": "provider",
+        "pr": "https://github.com/reprise-demo/field-notes/pull/12",
+        "pr_draft": false,
+        "branch": "reprise/fix-1",
+        "base_sha": "4b1e0c2d9f3a7b8c6d5e4f3a2b1c0d9e8f7a6b5c",
+        "head_sha": "9e8f7a6b5c4d3e2f1a0b9c8d7e6f5a4b3c2d1e0f",
+        "summary": "Ignore biometric results after cancellation",
+        "dropped_files": [],
+        "candidates": [
+          {
+            "k": 1,
+            "summary": "Ignore biometric results after cancellation",
+            "files_changed": [
+              "app/src/main/java/LoginActivity.kt"
+            ],
+            "diff_hash": "1a2b3c",
+            "executor": "local",
+            "quick_check": {
+              "repro_runs": 5,
+              "repro_failed": 0,
+              "blocking": 0
+            },
+            "status": "selected"
+          },
+          {
+            "k": 2,
+            "summary": "Catch the NullPointerException",
+            "files_changed": [
+              "app/src/main/java/LoginActivity.kt"
+            ],
+            "diff_hash": "4d5e6f",
+            "executor": "local",
+            "quick_check": {
+              "repro_runs": 5,
+              "repro_failed": 1,
+              "blocking": 0
+            },
+            "status": "rejected_repro"
+          }
+        ],
+        "review": {
+          "verdict": "ok",
+          "findings": [],
+          "stubbed": false
+        },
+        "verification": {
+          "verdict": "FIX_VERIFIED",
+          "finished_at": "2026-09-26T09:47:00.000Z",
+          "run_context": {
+            "platform": "android",
+            "executor": "local",
+            "method": "repo_command",
+            "host_os": "linux",
+            "device": "Pixel 7 emulator (API 34)",
+            "ci_run_url": null,
+            "runner_version": "0.1.0"
+          },
+          "repro": {
+            "runs_required": 36,
+            "runs": 36,
+            "failed": 0,
+            "invalid": 0,
+            "evidence": "strong",
+            "claim": "Passed 36 of 36 runs; before the fix it failed about 1 run in 5.",
+            "injected": false
+          },
+          "regression": {
+            "tests_total": 142,
+            "counts": {
+              "STABLE_PASS": 141,
+              "FIXED": 1
+            },
+            "blocking": [],
+            "notable": []
+          }
+        }
+      }
+    ]
+  },
+  "resolution_note": "",
+  "usage": {
+    "provider": "bob",
+    "calls": 9,
+    "by_stage": {
+      "intake": 1,
+      "dedupe": 1,
+      "test": 1,
+      "rootcause": 1,
+      "fix": 3
+    }
+  },
+  "events": [
+    {
+      "at": "2026-09-26T09:00:00.000Z",
+      "type": "acknowledged",
+      "detail": ""
+    },
+    {
+      "at": "2026-09-26T09:01:00.000Z",
+      "type": "intake.done",
+      "detail": ""
+    },
+    {
+      "at": "2026-09-26T09:02:00.000Z",
+      "type": "test.approved",
+      "detail": "app/src/androidTest/java/LoginBiometricTest.kt"
+    },
+    {
+      "at": "2026-09-26T09:07:00.000Z",
+      "type": "verdict",
+      "detail": "FLAKY"
+    },
+    {
+      "at": "2026-09-26T09:20:00.000Z",
+      "type": "fix.candidates_proposed",
+      "detail": "2 candidates"
+    },
+    {
+      "at": "2026-09-26T09:30:00.000Z",
+      "type": "pr.opened",
+      "detail": "https://github.com/reprise-demo/field-notes/pull/12"
+    },
+    {
+      "at": "2026-09-26T09:47:00.000Z",
+      "type": "verify.verdict",
+      "detail": "FIX_VERIFIED"
+    }
+  ]
+}

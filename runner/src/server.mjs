@@ -8,12 +8,13 @@ import { existsSync, readFileSync, mkdirSync, writeFileSync, unlinkSync } from '
 import { join, resolve, isAbsolute, normalize } from 'node:path';
 import { randomBytes, createHash } from 'node:crypto';
 import { homedir } from 'node:os';
-import { execSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 
 import { loadConfig, detectRemote, detectHead } from './config.mjs';
 import { buildEnv } from './env.mjs';
 import { runCommand } from './exec.mjs';
 import { getOrCreateWorktree, removeWorktree, activeWorktrees } from './repo.mjs';
+import { resolveBobOptions, detectBob, runBob, STAGES, MAX_PROMPT_CHARS } from './bob.mjs';
 
 // Adapter imports (one per platform; unused on non-matching hosts)
 import * as adapterWindows from './adapters/windows.mjs';
@@ -28,7 +29,7 @@ const PAIR_CODE_EXPIRY_MS = 5 * 60 * 1000; // 5 minutes
 const MAX_WRONG_CODES = 5;
 
 /**
- * @typedef {{ root: string; port: number; allowOrigins: string[] }} RunnerArgs
+ * @typedef {{ root: string; port: number; allowOrigins: string[]; bob?: Partial<import('./bob.mjs').BobOptions> }} RunnerArgs
  *
  * @typedef {object} RunnerConfig
  * @property {number} version
@@ -90,6 +91,11 @@ export async function startServer(args) {
   // Run platform prerequisite checks
   const platformCapabilities = buildPlatformCapabilities(config);
 
+  // IBM Bob bridge (CR-1): probe once at startup
+  const bobOpts = resolveBobOptions(args.bob ?? {});
+  const aiCapabilities = [detectBob(bobOpts)];
+  let aiBusy = false;
+
   // ── Pairing state ─────────────────────────────────────────────────────────
   /** @type {{ code: string; expiresAt: number } | null} */
   let pendingPair = generatePairCode();
@@ -129,7 +135,7 @@ export async function startServer(args) {
   function json(req, res, code, body) {
     const data = JSON.stringify(body);
     const origin = req.headers['origin'];
-    const allowOrigin = (origin && args.allowOrigins.includes(origin)) ? origin : args.allowOrigins[0] ?? '';
+    const allowOrigin = (origin && originAllowed(origin, args.allowOrigins)) ? origin : '';
     res.writeHead(code, {
       'Content-Type': 'application/json',
       'Content-Length': Buffer.byteLength(data),
@@ -147,7 +153,7 @@ export async function startServer(args) {
   function isAllowedOrigin(req) {
     const origin = req.headers['origin'];
     if (!origin) return false;
-    return args.allowOrigins.includes(origin);
+    return originAllowed(origin, args.allowOrigins);
   }
 
   /**
@@ -201,6 +207,7 @@ export async function startServer(args) {
       host_os: process.platform,
       platforms: platformCapabilities,
       busy,
+      ai: aiCapabilities,
     };
   }
 
@@ -212,6 +219,7 @@ export async function startServer(args) {
     // CORS preflight
     if (method === 'OPTIONS') {
       if (!isAllowedOrigin(req)) {
+        console.warn(`[runner] 403 Forbidden origin: "${req.headers['origin'] ?? '(none)'}" OPTIONS ${url} — restart with --allow-origin <origin> if this is your IDE`);
         res.writeHead(403); res.end();
         return;
       }
@@ -278,6 +286,7 @@ export async function startServer(args) {
         head,
         host_os: process.platform,
         platforms: platformCapabilities,
+        ai: aiCapabilities,
       });
       return;
     }
@@ -325,19 +334,32 @@ export async function startServer(args) {
       // Validate all file paths are approved
       const config2 = loadConfig(args.root);
       const fixScope = config2?.edit_scope?.fix ?? [];
+      const testScope = config2?.edit_scope?.test ?? [];
+      const neverScope = config2?.edit_scope?.never ?? [];
 
       for (const f of body.files) {
         if (typeof f.path !== 'string' || typeof f.content !== 'string') {
           json(req, res, 400, { error: 'Each file must have path and content' });
           return;
         }
-        if (!isInsideEditScope(f.path, fixScope)) {
-          json(req, res, 403, { error: `Path "${f.path}" is outside edit_scope.fix` });
+        if (f.path.includes('..') || isAbsolute(f.path) || /^[A-Za-z]:/.test(f.path)) {
+          json(req, res, 400, { error: `Path "${f.path}" must be relative without ".."` });
+          return;
+        }
+        // Candidate files come from edit_scope.fix; the reproduction test rides along from edit_scope.test.
+        const inScope = (isInsideEditScope(f.path, fixScope) || (testScope.length > 0 && isInsideEditScope(f.path, testScope)))
+          && !(neverScope.length > 0 && neverScope.some((p) => globToRegExp(p).test(f.path)));
+        if (!inScope) {
+          json(req, res, 403, { error: `Path "${f.path}" is outside edit_scope.fix/test` });
           return;
         }
         const approvedHash = approvals.get(f.path);
         if (!approvedHash) {
           json(req, res, 409, { error: `File "${f.path}" has not been approved via /approve` });
+          return;
+        }
+        if (createHash('sha256').update(f.content, 'utf8').digest('hex') !== approvedHash) {
+          json(req, res, 409, { error: `File "${f.path}" differs from the approved content` });
           return;
         }
       }
@@ -500,6 +522,55 @@ export async function startServer(args) {
       return;
     }
 
+    // ── POST /ai/run (CR-1: IBM Bob bridge) ─────────────────────────────────
+    if (method === 'POST' && url === '/ai/run') {
+      const bodyResult = await readBody(req);
+      if (!bodyResult.ok) { json(req, res, bodyResult.code, { error: bodyResult.message }); return; }
+      const body = /** @type {Record<string, unknown>} */ (bodyResult.data ?? {});
+
+      // Only these three fields are read; anything else (command, flags, cwd) is ignored (PD-18).
+      const { provider, stage, prompt } = body;
+      if (provider !== 'bob') {
+        json(req, res, 400, { error: 'provider must be "bob"' });
+        return;
+      }
+      if (typeof stage !== 'string' || !STAGES.has(stage)) {
+        json(req, res, 400, { error: `stage must be one of: ${[...STAGES].join(', ')}` });
+        return;
+      }
+      if (typeof prompt !== 'string' || prompt.length === 0 || prompt.length > MAX_PROMPT_CHARS) {
+        json(req, res, 400, { error: `prompt must be a non-empty string of at most ${MAX_PROMPT_CHARS} characters` });
+        return;
+      }
+      const cap = aiCapabilities[0];
+      if (!cap.available) {
+        json(req, res, 409, { error: `IBM Bob is not available on this runner: ${cap.reason}` });
+        return;
+      }
+      if (aiBusy) {
+        json(req, res, 409, { error: 'Bob is busy with another stage; one call at a time' });
+        return;
+      }
+
+      aiBusy = true;
+      const controller = new AbortController();
+      res.on('close', () => { if (!res.writableEnded) controller.abort(); });
+      const started = Date.now();
+      console.log(`[runner] bob: ${stage} started (max-cost ${bobOpts.maxCost}, max-turns ${bobOpts.maxTurns})`);
+      try {
+        const result = await runBob({ opts: bobOpts, root: args.root, prompt, signal: controller.signal });
+        console.log(`[runner] bob: ${stage} ${result.status} in ${Date.now() - started} ms, cost ${result.stats.session_costs}`);
+        json(req, res, 200, result);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        console.warn(`[runner] bob: ${stage} failed: ${message}`);
+        if (!res.writableEnded && !controller.signal.aborted) json(req, res, 502, { error: `Bob failed: ${message}` });
+      } finally {
+        aiBusy = false;
+      }
+      return;
+    }
+
     // ── GET /runs ────────────────────────────────────────────────────────────
     if (method === 'GET' && url === '/runs') {
       json(req, res, 200, { run_ids: [...runs.keys()] });
@@ -531,6 +602,10 @@ export async function startServer(args) {
     }
   } else {
     console.log('\nNo platforms configured in .reprise.yml');
+  }
+  for (const ai of aiCapabilities) {
+    console.log(`\nIBM Bob: ${ai.available ? `available ${ai.version ?? ''}` : `unavailable (${ai.reason})`}`);
+    if (ai.available && ai.reason) console.log(`  note: ${ai.reason}`);
   }
   console.log(`\nListening on http://${hostname}:${port}`);
   console.log(`Allowed origins: ${args.allowOrigins.join(', ')}`);
@@ -697,7 +772,7 @@ function buildPlatformCapabilities(config) {
  */
 function isTrackedInGit(root, relPath) {
   try {
-    execSync(`git ls-files --error-unmatch -- ${relPath}`, {
+    execFileSync('git', ['ls-files', '--error-unmatch', '--', relPath], {
       cwd: root,
       stdio: ['pipe', 'pipe', 'pipe'],
     });
@@ -713,11 +788,14 @@ function isTrackedInGit(root, relPath) {
  * @param {string} glob
  * @returns {RegExp}
  */
-function globToRegExp(glob) {
+export function globToRegExp(glob) {
   const escaped = glob
+    .replace(/\\/g, '/')
     .replace(/[.+^${}()|[\]\\]/g, '\\$&')
+    .replace(/\*\*\//g, '§DSTARSLASH§') // "**/" = zero or more directories
     .replace(/\*\*/g, '§DSTAR§')
     .replace(/\*/g, '[^/]*')
+    .replace(/§DSTARSLASH§/g, '(?:.*/)?')
     .replace(/§DSTAR§/g, '.*');
   return new RegExp(`^${escaped}$`);
 }
@@ -731,4 +809,27 @@ function globToRegExp(glob) {
 function isInsideEditScope(filePath, scope) {
   if (scope.length === 0) return true;
   return scope.some(pattern => globToRegExp(pattern).test(filePath));
+}
+
+/**
+ * Exact match, or a leading-label wildcard: "http://*.localhost:3000" matches
+ * "http://abc123.localhost:3000" (one DNS label, letters/digits/hyphens only).
+ * The web workbench runs each extension host on such a per-session subdomain (G-23).
+ * @param {string} origin
+ * @param {string[]} allowed
+ * @returns {boolean}
+ */
+export function originAllowed(origin, allowed) {
+  return allowed.some((pattern) => {
+    const star = pattern.indexOf('://*.');
+    if (star === -1) return pattern === origin;
+    const scheme = pattern.slice(0, star + 3); // "http://"
+    const rest = pattern.slice(star + 5);      // "localhost:3000"
+    if (!origin.toLowerCase().startsWith(scheme.toLowerCase())) return false;
+    const host = origin.slice(scheme.length);
+    const dot = host.indexOf('.');
+    return dot > 0
+      && /^[a-z0-9-]+$/i.test(host.slice(0, dot))
+      && host.slice(dot + 1).toLowerCase() === rest.toLowerCase();
+  });
 }

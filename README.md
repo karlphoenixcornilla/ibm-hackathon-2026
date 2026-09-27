@@ -6,6 +6,10 @@
 
 Reprise IDE is a browser-based IDE that helps you reproduce flaky bugs, run AI-assisted diagnosis, propose and verify fixes — all from a GitHub-hosted static page, without any server.
 
+**IBM Bob is the AI.** Every reasoning stage (intake, duplicate check, reproduction test, diagnosis, fix candidates, self-review) runs through IBM Bob Shell (`bob run`) on your machine, via the Reprise Runner's `/ai/run` bridge, with read-only tools and Bobcoin caps. Every file Bob proposes is shown as a diff and needs your approval before it is written or run.
+
+**Start here:** [HOW_TO_RUN.md](HOW_TO_RUN.md) · **Set-up and every variable:** [docs/SETUP.md](docs/SETUP.md) · **Build from source:** [BUILDING.md](BUILDING.md)
+
 Architecture: see [`docs/kit/01-architecture/architecture.md`](docs/kit/01-architecture/architecture.md).  
 Implementation plan: see [`docs/implementation/plan.md`](docs/implementation/plan.md).
 
@@ -37,10 +41,12 @@ Implementation plan: see [`docs/implementation/plan.md`](docs/implementation/pla
 ### Start the Reprise Runner against a local clone
 
 ```bash
+export BOB_API_KEY=...                         # IBM Bob API key, Inference scope
+export REPRISE_IDE_ORIGIN=https://<owner>.github.io
 node runner/reprise-runner.mjs --root /path/to/your/app-clone
 ```
 
-The runner prints a pairing code. Enter it in the IDE under **Reprise → Connect Runner**.
+The runner prints a pairing code and whether IBM Bob is available. Enter the code in the IDE with **Reprise: Connect Runner**.
 
 ### Development (extension only)
 
@@ -55,8 +61,8 @@ npm test            # Unit tests (node --test)
 ### Run the runner tests
 
 ```bash
-cd runner
-node --test test/**/*.test.mjs
+cd runner && npm test
+cd dashboard && npm test
 ```
 
 ## Repository layout
@@ -78,7 +84,7 @@ runner/                 Reprise Runner (Node.js, ESM)
   src/server.mjs        HTTP server (127.0.0.1 only)
   test/                 Runner unit tests
 
-dashboard/              Static dashboard placeholder
+dashboard/              Static dashboard (vanilla ES modules) + build.mjs aggregating reprise-data
 docs/
   kit/                  Full design kit (specs, architecture, build plan)
   implementation/       Parallel implementation plans (base + 5 tracks)
@@ -105,8 +111,11 @@ GitHub Actions runs on every push:
 - TypeScript typecheck
 - ESLint
 - `dependency-cruiser` boundary checks
-- Extension unit tests
-- Runner unit tests
+- Extension unit tests, generated-asset drift check, web bundle build
+- Runner unit tests and single-file bundle
+- Dashboard tests (including fixtures against the issue-record schema)
+
+`pages.yml` deploys the dashboard and IDE to GitHub Pages; `release-runner.yml` publishes the runner on `v*` tags.
 
 See [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
 

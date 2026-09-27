@@ -10,7 +10,7 @@ import type { Result } from '../util/result';
 import { Result as R } from '../util/result';
 
 /** Minimal non-cancellable token for use when no real token is provided. */
-function neverCancelled(): import('vscode').CancellationToken {
+function neverCancelled(): vscode.CancellationToken {
   return { isCancellationRequested: false, onCancellationRequested: () => ({ dispose: () => undefined }) };
 }
 
@@ -191,6 +191,13 @@ class VerifyServiceImpl implements VerifyService {
 
     const platform = repro.run_context.platform;
     const executor = this.svc.executors.local;
+
+    // Run against the fix commit and its base when applySelected recorded real SHAs;
+    // otherwise (fakes, human fixes in the working tree) run the opened folder.
+    const isSha = (s: string | undefined): s is string => !!s && /^[0-9a-f]{7,40}$/i.test(s);
+    const lastIter = record.fix.iterations[record.fix.iterations.length - 1];
+    const headRef = isSha(lastIter?.head_sha) ? { head: lastIter.head_sha } : null;
+    const baseRef = isSha(lastIter?.base_sha) ? { base: lastIter.base_sha } : { base: repro.branch };
     const cancelToken = token ?? neverCancelled();
 
     const verifyCfg = config.verify;
@@ -206,7 +213,7 @@ class VerifyServiceImpl implements VerifyService {
     let reproResults: RunResult[] = [];
     try {
       reproResults = await executor.run(
-        { platform, mode: 'single', test_path: repro.test_file, runs: required, ref: null },
+        { platform, mode: 'single', test_path: repro.test_file, runs: required, ref: headRef },
         cancelToken,
         () => {},
       );
@@ -242,12 +249,12 @@ class VerifyServiceImpl implements VerifyService {
       let headResults: RunResult[] = [];
       try {
         baseResults = await executor.run(
-          { platform, mode: 'all', test_path: '', runs: 1, ref: { base: repro.branch } },
+          { platform, mode: 'all', test_path: '', runs: 1, ref: baseRef },
           cancelToken,
           () => {},
         );
         headResults = await executor.run(
-          { platform, mode: 'all', test_path: '', runs: 1, ref: null },
+          { platform, mode: 'all', test_path: '', runs: 1, ref: headRef },
           cancelToken,
           () => {},
         );

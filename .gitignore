@@ -19,3 +19,6 @@ Thumbs.db
 
 # NPM lockfiles (committed per project subfolder)
 package-lock.json
+
+# @vscode/test-web download cache
+.vscode-test-web/

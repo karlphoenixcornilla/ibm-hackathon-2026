@@ -1,0 +1,126 @@
+{
+  "schema": 3,
+  "repo": "reprise-demo/field-notes",
+  "issue": 9,
+  "title": "Sync badge shows a stale count on iPad after background refresh",
+  "url": "https://github.com/reprise-demo/field-notes/issues/9",
+  "state": "FLAKY",
+  "provider": "bob",
+  "stubbed": false,
+  "created_at": "2026-09-26T10:30:00.000Z",
+  "updated_at": "2026-09-26T10:41:00.000Z",
+  "replication": {
+    "verdict": "FLAKY",
+    "acknowledged_by": "maintainer",
+    "started_at": "2026-09-26T10:30:00.000Z",
+    "finished_at": "2026-09-26T10:41:00.000Z",
+    "duration_ms": 660000,
+    "fingerprint": {
+      "platform": "ios",
+      "component": "sync",
+      "functions": [
+        "SyncBadgeModel.refresh"
+      ],
+      "symptom": "Badge count lags one refresh behind",
+      "trigger": "",
+      "expected": "",
+      "actual": "",
+      "error_signature": ""
+    },
+    "duplicate": {
+      "of": null,
+      "score": null,
+      "fields": {},
+      "reason": "",
+      "behaviour_check": null
+    },
+    "question": "",
+    "repro": {
+      "test_origin": "provided",
+      "test_file": "FieldNotesTests/SyncBadgeTests.swift",
+      "test_sha256": "a3f1a3f1a3f1a3f1a3f1a3f1a3f1a3f1a3f1a3f1a3f1a3f1a3f1a3f1a3f1a3f1",
+      "branch": "reprise/repro-9",
+      "signature": {
+        "kind": "assertion_message",
+        "pattern": "REPRISE-9 badge stale"
+      },
+      "attempts": 1,
+      "run_context": {
+        "platform": "ios",
+        "executor": "local",
+        "method": "repo_command",
+        "host_os": "darwin",
+        "device": "iPad (10th generation) simulator",
+        "ci_run_url": null,
+        "runner_version": "0.1.0"
+      },
+      "trials": 20,
+      "failed": 2,
+      "invalid": 0,
+      "sequence": "PPFPPPPPPFPPPPPPPPPP",
+      "trials_policy": {
+        "min": 10,
+        "max": 20,
+        "limit": 100,
+        "max_minutes": null,
+        "source": "config",
+        "stopped_by": "max_reached"
+      },
+      "rate": 0.1,
+      "wilson_low": 0.027866481213768224,
+      "wilson_high": 0.3010336452284873
+    },
+    "diagnosis": {
+      "summary": "refresh() publishes the count before the background context saves.",
+      "locations": [
+        {
+          "file": "FieldNotes/Sync/SyncBadgeModel.swift",
+          "start_line": 41,
+          "end_line": 57,
+          "reason": "publish happens before save completes"
+        }
+      ],
+      "fix_direction": "Publish the count from the save completion handler.",
+      "confidence": "medium",
+      "accepted_by": "",
+      "edited": false
+    }
+  },
+  "fix": {
+    "iterations": []
+  },
+  "resolution_note": "",
+  "usage": {
+    "provider": "bob",
+    "calls": 4,
+    "by_stage": {
+      "intake": 1,
+      "dedupe": 1,
+      "test": 1,
+      "rootcause": 1,
+      "fix": 0
+    }
+  },
+  "events": [
+    {
+      "at": "2026-09-26T10:30:00.000Z",
+      "type": "acknowledged",
+      "detail": ""
+    },
+    {
+      "at": "2026-09-26T10:31:00.000Z",
+      "type": "intake.done",
+      "detail": ""
+    },
+    {
+      "at": "2026-09-26T10:32:00.000Z",
+      "type": "test.approved",
+      "detail": "FieldNotesTests/SyncBadgeTests.swift"
+    },
+    {
+      "at": "2026-09-26T10:41:00.000Z",
+      "type": "verdict",
+      "detail": "FLAKY"
+    }
+  ]
+}

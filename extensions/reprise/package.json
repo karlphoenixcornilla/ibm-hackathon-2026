@@ -133,6 +133,10 @@
         "command": "reprise.refreshBugReports",
         "title": "Reprise: Refresh Bug Reports",
         "icon": "$(refresh)"
+      },
+      {
+        "command": "reprise.openPanel",
+        "title": "Reprise: Open Report Panel"
       }
     ],
     "menus": {
@@ -141,6 +145,19 @@
           "command": "reprise.refreshBugReports",
           "when": "view == reprise.bugReports",
           "group": "navigation"
+        },
+        {
+          "command": "reprise.connectRunner",
+          "when": "view == reprise.runs",
+          "group": "navigation"
+        },
+        {
+          "command": "reprise.showMachineCapabilities",
+          "when": "view == reprise.runs"
+        },
+        {
+          "command": "reprise.selectProvider",
+          "when": "view == reprise.bugReports"
         }
       ],
       "view/item/context": [
@@ -150,9 +167,55 @@
           "group": "inline"
         },
         {
+          "command": "reprise.acknowledgeCustom",
+          "when": "view == reprise.bugReports && viewItem =~ /bugReport/",
+          "group": "2_replicate@1"
+        },
+        {
+          "command": "reprise.runMoreTrials",
+          "when": "view == reprise.bugReports && viewItem =~ /bugReport/",
+          "group": "2_replicate@2"
+        },
+        {
+          "command": "reprise.chooseTestFile",
+          "when": "view == reprise.bugReports && viewItem =~ /bugReport/",
+          "group": "2_replicate@3"
+        },
+        {
+          "command": "reprise.acceptDiagnosis",
+          "when": "view == reprise.bugReports && viewItem =~ /bugReport/",
+          "group": "3_fix@1"
+        },
+        {
+          "command": "reprise.proposeFixes",
+          "when": "view == reprise.bugReports && viewItem =~ /bugReport/",
+          "group": "3_fix@2"
+        },
+        {
+          "command": "reprise.verifyFix",
+          "when": "view == reprise.bugReports && viewItem =~ /bugReport/",
+          "group": "3_fix@3"
+        },
+        {
+          "command": "reprise.markReadyForReview",
+          "when": "view == reprise.bugReports && viewItem =~ /bugReport/",
+          "group": "3_fix@4"
+        },
+        {
+          "command": "reprise.publishRecord",
+          "when": "view == reprise.bugReports && viewItem =~ /bugReport/",
+          "group": "4_record@1"
+        },
+        {
           "command": "reprise.openDashboard",
           "when": "view == reprise.bugReports",
           "group": "1_open"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "reprise.openPanel",
+          "when": "false"
         }
       ]
     },
@@ -161,7 +224,7 @@
       "properties": {
         "reprise.provider": {
           "type": "string",
-          "default": "stub",
+          "default": "bob",
           "enum": [
             "stub",
             "claude",
@@ -169,8 +232,15 @@
             "gemini",
             "groq"
           ],
-          "description": "AI provider to use for reasoning stages.",
-          "scope": "window"
+          "description": "AI provider for the reasoning stages (intake, dedupe, test, rootcause, fix, review).",
+          "scope": "window",
+          "enumDescriptions": [
+            "Prepared responses from .reprise/stubs/<issue>/ in the opened folder (no network).",
+            "Not implemented yet.",
+            "IBM Bob (Bob Shell `bob run`) through the paired Reprise Runner. Needs Bob Shell and BOB_API_KEY on the runner machine.",
+            "Not implemented yet.",
+            "Not implemented yet."
+          ]
         },
         "reprise.postResultsToGitHub": {
           "type": "boolean",
@@ -197,7 +267,7 @@
         "reprise.runnerPort": {
           "type": "number",
           "default": 47410,
-          "description": "Port the Reprise Runner is listening on.",
+          "description": "Port the Reprise Runner listens on (the runner prints it; it moves up to +9 if the port is busy).",
           "scope": "window"
         },
         "reprise.dev.useFakes": {
@@ -210,19 +280,22 @@
     }
   },
   "scripts": {
-    "compile": "webpack --config webpack.config.js",
+    "compile": "npm run gen:assets && webpack --config webpack.config.js",
     "watch": "webpack --config webpack.config.js --watch",
     "typecheck": "tsc --noEmit",
-    "lint": "eslint src --ext ts",
+    "lint": "eslint src",
     "depcheck": "depcruise src --config .dependency-cruiser.cjs",
     "test": "node --test out/test/**/*.test.js",
-    "pretest": "tsc --outDir out"
+    "pretest": "tsc --outDir out",
+    "gen:assets": "node scripts/gen-assets.mjs",
+    "web": "npm run compile && vscode-test-web --browser=chromium --quality=stable --extensionDevelopmentPath=. --port=3000"
   },
   "devDependencies": {
     "@types/js-yaml": "^4.0.9",
     "@types/vscode": "^1.96.0",
     "@typescript-eslint/eslint-plugin": "^8.0.0",
     "@typescript-eslint/parser": "^8.0.0",
+    "@vscode/test-web": "^0.0.81",
     "dependency-cruiser": "^16.0.0",
     "eslint": "^9.0.0",
     "ts-loader": "^9.0.0",

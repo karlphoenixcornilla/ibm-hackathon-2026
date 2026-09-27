@@ -2,7 +2,7 @@
 // Owned by: T1
 // Spec: 02-specs/github-connection.md
 
-import type { GitHubService, GitHubIssue, AuthService, ConfigService } from '../contracts/services';
+import type { GitHubService, GitHubIssue, GitHubIssueDetail, AuthService, ConfigService } from '../contracts/services';
 import type { IssueRecord } from '../contracts/records';
 import { Result } from '../util/result';
 import { parseGitConfigOrigin, extractOwnerRepo } from '../util/git-helpers';
@@ -102,6 +102,8 @@ export function createGitHub(services: {
   auth: AuthService;
   config: ConfigService;
   workspaceReader: WorkspaceFileReader;
+  /** Root of the opened folder as a URI string (e.g. vscode-vfs://github/owner/repo), if any. */
+  workspaceRoot?: () => string | null;
 }): GitHubService {
 
   function tok(): string {
@@ -112,7 +114,7 @@ export function createGitHub(services: {
 
   // ── detectRepo ────────────────────────────────────────────────────────────
 
-  async function detectRepo(): Promise<import('../util/result').Result<string, string>> {
+  async function detectRepo(): Promise<Result<string, string>> {
     const readText = async (p: string): Promise<string | null> => {
       const r = await services.workspaceReader(p);
       return r;
@@ -120,6 +122,11 @@ export function createGitHub(services: {
 
     const configText = await readText('.git/config');
     if (!configText) {
+      // A GitHub virtual folder ("Open Repository") has no .git; its URI names the repo.
+      const root = services.workspaceRoot?.() ?? '';
+      const vfs = root.match(/^vscode-vfs:\/\/github(?:\+[^/]*)?\/([\w.-]+)\/([\w.-]+)/i);
+      if (vfs) { return Result.ok(`${vfs[1]}/${vfs[2]}`); }
+
       return Result.err(
         'No .git/config found. Open a folder that contains a git repository, ' +
         'or use "Reprise: Link Repository" to enter owner/repo manually.'
@@ -141,7 +148,7 @@ export function createGitHub(services: {
 
   // ── listIssues ────────────────────────────────────────────────────────────
 
-  async function listIssues(repo: string): Promise<import('../util/result').Result<GitHubIssue[], string>> {
+  async function listIssues(repo: string): Promise<Result<GitHubIssue[], string>> {
     const cfg = services.config.get();
     const labels = cfg?.issues?.labels ?? ['bug'];
     const labelParam = labels.join(',');
@@ -173,9 +180,47 @@ export function createGitHub(services: {
     return Result.ok(issues);
   }
 
+  // ── getIssue (CR-1) ─────────────────────────────────────────────────────────
+
+  async function getIssue(repo: string, issue: number): Promise<Result<GitHubIssueDetail, string>> {
+    const r = await ghFetch<Record<string, unknown>>(`${API}/repos/${repo}/issues/${issue}`, { token: tok() });
+    if (!r.ok || !r.data) { return Result.err(r.error ?? `Issue #${issue} not found`); }
+    const raw = r.data;
+
+    const comments: GitHubIssueDetail['comments'] = [];
+    if (((raw['comments'] as number | undefined) ?? 0) > 0) {
+      const c = await ghFetch<Array<Record<string, unknown>>>(
+        `${API}/repos/${repo}/issues/${issue}/comments?per_page=100`,
+        { token: tok() }
+      );
+      for (const item of c.ok ? c.data ?? [] : []) {
+        comments.push({
+          user: ((item['user'] as Record<string, unknown> | null)?.['login'] as string) ?? '',
+          body: (item['body'] as string | null) ?? '',
+          created_at: item['created_at'] as string,
+        });
+      }
+    }
+
+    return Result.ok({
+      number: raw['number'] as number,
+      title: raw['title'] as string,
+      html_url: raw['html_url'] as string,
+      state: raw['state'] as 'open' | 'closed',
+      labels: ((raw['labels'] as unknown[]) ?? []).map((l: unknown) =>
+        typeof l === 'string' ? l : (l as Record<string, unknown>)['name'] as string
+      ),
+      created_at: raw['created_at'] as string,
+      updated_at: raw['updated_at'] as string,
+      body: (raw['body'] as string | null) ?? '',
+      user: ((raw['user'] as Record<string, unknown> | null)?.['login'] as string) ?? '',
+      comments,
+    });
+  }
+
   // ── readRecord ────────────────────────────────────────────────────────────
 
-  async function readRecord(repo: string, issue: number): Promise<import('../util/result').Result<IssueRecord | null, string>> {
+  async function readRecord(repo: string, issue: number): Promise<Result<IssueRecord | null, string>> {
     // Read issues/<N>.json from the reprise-data branch via Contents API
     const url = `${API}/repos/${repo}/contents/issues/${issue}.json?ref=${REPRISE_DATA_BRANCH}`;
     const r = await ghFetch<Record<string, unknown>>(url, { token: tok() });
@@ -203,7 +248,7 @@ export function createGitHub(services: {
     repo: string,
     issue: number,
     record: IssueRecord
-  ): Promise<import('../util/result').Result<void, string>> {
+  ): Promise<Result<void, string>> {
     const path = `issues/${issue}.json`;
     const contentBytes = new TextEncoder().encode(JSON.stringify(record, null, 2));
     const contentB64 = btoa(String.fromCharCode(...contentBytes));
@@ -234,7 +279,7 @@ export function createGitHub(services: {
 
   // ── getOrCreateBranch ─────────────────────────────────────────────────────
 
-  async function getOrCreateBranch(repo: string): Promise<import('../util/result').Result<string, string>> {
+  async function getOrCreateBranch(repo: string): Promise<Result<string, string>> {
     const url = `${API}/repos/${repo}/git/refs/heads/${REPRISE_DATA_BRANCH}`;
     const r = await ghFetch<{ object: { sha: string } }>(url, { token: tok() });
 
@@ -283,7 +328,7 @@ export function createGitHub(services: {
     contentB64: string,
     parentSha: string,
     message: string
-  ): Promise<import('../util/result').Result<void, string>> {
+  ): Promise<Result<void, string>> {
     // Step 1: create blob
     const blobR = await ghFetch<{ sha: string }>(
       `${API}/repos/${repo}/git/blobs`,
@@ -346,7 +391,7 @@ export function createGitHub(services: {
     title: string,
     body: string,
     draft: boolean
-  ): Promise<import('../util/result').Result<{ number: number; html_url: string }, string>> {
+  ): Promise<Result<{ number: number; html_url: string }, string>> {
     // Check if a PR already exists for this branch
     const listR = await ghFetch<Array<{ number: number; html_url: string; head: { ref: string } }>>(
       `${API}/repos/${repo}/pulls?state=open&head=${encodeURIComponent(repo.split('/')[0] + ':' + branch)}&base=${encodeURIComponent(base)}`,
@@ -374,12 +419,136 @@ export function createGitHub(services: {
     return Result.ok({ number: createR.data!.number, html_url: createR.data!.html_url });
   }
 
+  // ── getDefaultBranch (CR-1) ───────────────────────────────────────────────
+
+  async function getDefaultBranch(repo: string): Promise<Result<string, string>> {
+    const r = await ghFetch<{ default_branch: string }>(`${API}/repos/${repo}`, { token: tok() });
+    if (!r.ok || !r.data) { return Result.err(r.error ?? 'Repository not found'); }
+    return Result.ok(r.data.default_branch);
+  }
+
+  // ── commitFiles (CR-1, PD-19: Git Data API, no git) ───────────────────────
+
+  async function resolveSha(repo: string, refOrSha: string): Promise<Result<string, string>> {
+    if (/^[0-9a-f]{40}$/i.test(refOrSha)) { return Result.ok(refOrSha); }
+    const r = await ghFetch<{ object: { sha: string } }>(
+      `${API}/repos/${repo}/git/ref/heads/${encodeURIComponent(refOrSha)}`,
+      { token: tok() }
+    );
+    if (!r.ok || !r.data) { return Result.err(r.error ?? `Branch ${refOrSha} not found`); }
+    return Result.ok(r.data.object.sha);
+  }
+
+  async function commitFiles(
+    repo: string,
+    branch: string,
+    base: string,
+    files: Array<{ path: string; content: string }>,
+    message: string
+  ): Promise<Result<{ sha: string; parent: string }, string>> {
+    if (files.length === 0) { return Result.err('No files to commit'); }
+
+    // 1. Parent: the branch tip if it exists, otherwise `base`.
+    const existing = await ghFetch<{ object: { sha: string } }>(
+      `${API}/repos/${repo}/git/ref/heads/${branch}`,
+      { token: tok() }
+    );
+    let parentSha: string;
+    let branchExists = false;
+    if (existing.ok && existing.data) {
+      parentSha = existing.data.object.sha;
+      branchExists = true;
+    } else if (existing.status === 404) {
+      const b = await resolveSha(repo, base);
+      if (!b.ok) { return b; }
+      parentSha = b.value;
+    } else {
+      return Result.err(existing.error ?? 'Could not read branch');
+    }
+
+    const parent = await ghFetch<{ tree: { sha: string } }>(
+      `${API}/repos/${repo}/git/commits/${parentSha}`,
+      { token: tok() }
+    );
+    if (!parent.ok || !parent.data) { return Result.err(parent.error ?? 'Parent commit not found'); }
+
+    // 2. Blobs.
+    const tree: Array<{ path: string; mode: string; type: string; sha: string }> = [];
+    for (const f of files) {
+      const blob = await ghFetch<{ sha: string }>(
+        `${API}/repos/${repo}/git/blobs`,
+        { method: 'POST', token: tok(), body: { content: f.content, encoding: 'utf-8' } }
+      );
+      if (!blob.ok || !blob.data) { return Result.err(blob.error ?? `Blob for ${f.path} failed`); }
+      tree.push({ path: f.path, mode: '100644', type: 'blob', sha: blob.data.sha });
+    }
+
+    // 3. Tree, 4. commit.
+    const treeR = await ghFetch<{ sha: string }>(
+      `${API}/repos/${repo}/git/trees`,
+      { method: 'POST', token: tok(), body: { base_tree: parent.data.tree.sha, tree } }
+    );
+    if (!treeR.ok || !treeR.data) { return Result.err(treeR.error ?? 'Tree failed'); }
+
+    const commitR = await ghFetch<{ sha: string }>(
+      `${API}/repos/${repo}/git/commits`,
+      { method: 'POST', token: tok(), body: { message, tree: treeR.data.sha, parents: [parentSha] } }
+    );
+    if (!commitR.ok || !commitR.data) { return Result.err(commitR.error ?? 'Commit failed'); }
+
+    // 5. Move or create the ref (never a force push).
+    const refR = branchExists
+      ? await ghFetch(`${API}/repos/${repo}/git/refs/heads/${branch}`, {
+          method: 'PATCH', token: tok(), body: { sha: commitR.data.sha, force: false },
+        })
+      : await ghFetch(`${API}/repos/${repo}/git/refs`, {
+          method: 'POST', token: tok(), body: { ref: `refs/heads/${branch}`, sha: commitR.data.sha },
+        });
+    if (!refR.ok) { return Result.err(refR.error ?? 'Ref update failed'); }
+
+    return Result.ok({ sha: commitR.data.sha, parent: parentSha });
+  }
+
+  // ── markPrReady (CR-1, PD-28) — REST cannot un-draft; use GraphQL ─────────
+
+  async function markPrReady(repo: string, prNumber: number): Promise<Result<void, string>> {
+    const pr = await ghFetch<{ node_id: string; draft: boolean }>(
+      `${API}/repos/${repo}/pulls/${prNumber}`,
+      { token: tok() }
+    );
+    if (!pr.ok || !pr.data) { return Result.err(pr.error ?? 'PR not found'); }
+    if (!pr.data.draft) { return Result.ok(undefined); }
+
+    const r = await ghFetch<{ errors?: Array<{ message: string }> }>(`${API}/graphql`, {
+      method: 'POST',
+      token: tok(),
+      body: {
+        query: 'mutation($id: ID!) { markPullRequestReadyForReview(input: { pullRequestId: $id }) { pullRequest { isDraft } } }',
+        variables: { id: pr.data.node_id },
+      },
+    });
+    if (!r.ok) { return Result.err(r.error ?? 'GraphQL request failed'); }
+    if (r.data?.errors?.length) { return Result.err(r.data.errors.map((e) => e.message).join('; ')); }
+    return Result.ok(undefined);
+  }
+
+  // ── comment (CR-1, PD-6) ──────────────────────────────────────────────────
+
+  async function comment(repo: string, issueOrPr: number, body: string): Promise<Result<{ html_url: string }, string>> {
+    const r = await ghFetch<{ html_url: string }>(
+      `${API}/repos/${repo}/issues/${issueOrPr}/comments`,
+      { method: 'POST', token: tok(), body: { body } }
+    );
+    if (!r.ok || !r.data) { return Result.err(r.error ?? 'Comment failed'); }
+    return Result.ok({ html_url: r.data.html_url });
+  }
+
   // ── dispatchWorkflow ──────────────────────────────────────────────────────
 
   async function dispatchWorkflow(
     repo: string,
     inputs: Record<string, string | number>
-  ): Promise<import('../util/result').Result<{ runId: number }, string>> {
+  ): Promise<Result<{ runId: number }, string>> {
     // Dispatch reprise-run.yml
     const dispatchR = await ghFetch(
       `${API}/repos/${repo}/actions/workflows/reprise-run.yml/dispatches`,
@@ -407,7 +576,7 @@ export function createGitHub(services: {
   async function downloadArtifact(
     url: string,
     token: string
-  ): Promise<import('../util/result').Result<Record<string, unknown>, string>> {
+  ): Promise<Result<Record<string, unknown>, string>> {
     let res: Response;
     try {
       res = await fetch(url, {
@@ -431,6 +600,11 @@ export function createGitHub(services: {
   return {
     detectRepo,
     listIssues,
+    getIssue,
+    getDefaultBranch,
+    commitFiles,
+    markPrReady,
+    comment,
     readRecord,
     writeRecord,
     createOrUpdatePr,

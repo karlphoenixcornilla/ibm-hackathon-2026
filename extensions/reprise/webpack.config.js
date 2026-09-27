@@ -19,10 +19,10 @@ const config = {
     mainFields: ['browser', 'module', 'main'],
     extensions: ['.ts', '.js'],
     fallback: {
-      // Web workers don't have Node built-ins
-      path: require.resolve('path-browserify'),
-      buffer: require.resolve('buffer/'),
-      process: require.resolve('process/browser'),
+      // The extension uses no Node built-ins; don't polyfill them.
+      path: false,
+      buffer: false,
+      process: false,
     },
   },
   module: {

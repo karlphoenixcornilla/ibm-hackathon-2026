@@ -5,12 +5,43 @@
 import type { Stage, PipelineContext, StageResult } from './types';
 import type { TestOutput } from '../contracts/provider';
 import { touchRecord } from './record-factory';
+import { approveAndWriteTest } from './approve-file';
+
+function needsInfo(ctx: PipelineContext, msg: string, state: 'NEEDS_INFO' | 'STOPPED' = 'NEEDS_INFO'): StageResult {
+  const { record } = ctx;
+  record.state = state;
+  if (state === 'NEEDS_INFO') record.replication.verdict = 'NEEDS_INFO';
+  record.replication.question = msg;
+  record.replication.finished_at = new Date().toISOString();
+  touchRecord(record);
+  ctx.addEvent(state === 'NEEDS_INFO' ? 'verdict' : 'stopped', state === 'NEEDS_INFO' ? 'NEEDS_INFO' : msg);
+  return { ok: false, error: `${state}: ${msg}`, terminal: true };
+}
 
 export const testStage: Stage = {
   async run(ctx: PipelineContext): Promise<StageResult> {
     const { record, services } = ctx;
-    const provider = services.providers.getActive();
+    const repro = record.replication.repro;
 
+    // Validate mode: the user chose their own test ("Choose Test File for Report").
+    if (repro.test_origin === 'user' && repro.test_file) {
+      const current = await services.workspace.readFile(repro.test_file);
+      if (!current.ok) {
+        return needsInfo(ctx, `Your test file ${repro.test_file} could not be read: ${current.error}`);
+      }
+      const sha256 = await services.workspace.sha256(current.value);
+      repro.test_sha256 = sha256;
+      services.security.recordApproval(repro.test_file, sha256);
+      if (services.runnerClient.approve && services.runnerClient.isPaired()) {
+        await services.runnerClient.approve(repro.test_file, sha256);
+      }
+      repro.attempts = Math.max(1, repro.attempts);
+      ctx.addEvent('test.user', repro.test_file);
+      touchRecord(record);
+      return { ok: true };
+    }
+
+    const provider = services.providers.getActive();
     let testOut: TestOutput;
     try {
       const resp = await provider.run(
@@ -27,39 +58,35 @@ export const testStage: Stage = {
       record.usage.calls += resp.usage.calls;
       record.usage.by_stage.test = (record.usage.by_stage.test ?? 0) + resp.usage.calls;
 
-      // The provider proposes a test file — require approval (PD-10)
-      if (resp.files.length > 0) {
-        for (const f of resp.files) {
-          // Write to workspace
-          const bytes = new TextEncoder().encode(f.content);
-          const writeResult = await services.workspace.writeFile(f.path, bytes);
-          if (!writeResult.ok) {
-            throw new Error(`Failed to write test file: ${writeResult.error}`);
+      // The provider proposes a test file — it needs approval before it is written or run (PD-10)
+      for (const f of resp.files) {
+        const approved = await approveAndWriteTest(ctx, f, resp.provider);
+        if (!approved.ok) {
+          if (approved.rejected) {
+            return needsInfo(
+              ctx,
+              `${approved.error}. Use "Reprise: Choose Test File for Report" to supply your own, or acknowledge again.`,
+              'STOPPED'
+            );
           }
-          // Compute SHA-256 and register approval
-          const sha256 = await services.workspace.sha256(bytes);
-          services.security.recordApproval(f.path, sha256);
-          record.replication.repro.test_sha256 = sha256;
+          throw new Error(approved.error);
         }
+        if (f.path === testOut.test_file) repro.test_sha256 = approved.sha256;
+      }
+      if (resp.files.length > 0 && !resp.files.some((f) => f.path === testOut.test_file)) {
+        throw new Error(`The provider named ${testOut.test_file} but proposed ${resp.files.map((f) => f.path).join(', ')}`);
       }
 
-      record.replication.repro.test_file = testOut.test_file;
-      record.replication.repro.signature = testOut.signature;
-      record.replication.repro.test_origin = 'provided';
-      record.replication.repro.attempts = 1;
+      repro.test_file = testOut.test_file;
+      repro.signature = testOut.signature;
+      repro.test_origin = 'provided';
+      repro.attempts = 1;
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       // No test available
-      record.state = 'NEEDS_INFO';
-      record.replication.verdict = 'NEEDS_INFO';
-      record.replication.question = msg;
-      record.replication.finished_at = new Date().toISOString();
-      touchRecord(record);
-      ctx.addEvent('verdict', 'NEEDS_INFO');
-      return { ok: false, error: `NEEDS_INFO: no test available: ${msg}`, terminal: true };
+      return needsInfo(ctx, msg);
     }
 
-    ctx.addEvent('test.approved');
     touchRecord(record);
     return { ok: true };
   },

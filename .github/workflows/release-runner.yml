@@ -1,0 +1,64 @@
+# release-runner.yml — publish the single-file Reprise Runner and its SHA-256 (G-8, PD-20).
+# Trigger: push a tag v* (e.g. git tag v0.1.0 && git push origin v0.1.0).
+
+name: Release runner
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to (re)publish"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Test runner
+        working-directory: runner
+        run: npm test
+
+      - name: Bundle runner
+        run: node runner/build.mjs
+
+      - name: Smoke-test the bundle
+        run: |
+          node --check runner/dist/reprise-runner.mjs
+          node runner/dist/reprise-runner.mjs --help | head -3
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          cat > notes.md <<EOF
+          Reprise Runner ${TAG}: one file, Node.js 22+ (IBM Bob Shell needs Node.js 24+).
+
+          Verify the download, then start it in your repository clone:
+
+          \`\`\`sh
+          sha256sum -c reprise-runner.mjs.sha256
+          BOB_API_KEY=... node reprise-runner.mjs --root /path/to/your/clone --allow-origin https://${GITHUB_REPOSITORY_OWNER,,}.github.io
+          \`\`\`
+
+          SHA-256: $(cut -d' ' -f1 runner/dist/reprise-runner.mjs.sha256)
+          EOF
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" runner/dist/reprise-runner.mjs runner/dist/reprise-runner.mjs.sha256 --clobber
+          else
+            gh release create "$TAG" runner/dist/reprise-runner.mjs runner/dist/reprise-runner.mjs.sha256 \
+              --title "Reprise Runner $TAG" --notes-file notes.md
+          fi

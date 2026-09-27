@@ -6,11 +6,12 @@ import type { Services } from '../contracts/services';
 import type { FixService } from '../contracts/services';
 import type { IssueRecord, Candidate, FixIteration } from '../contracts/records';
 import type { FixOutput } from '../contracts/provider';
+import type { RunRequest } from '../contracts/execution';
 import type { Result } from '../util/result';
 import { Result as R } from '../util/result';
 
 /** Minimal non-cancellable token for use when no real token is provided. */
-function neverCancelled(): import('vscode').CancellationToken {
+function neverCancelled(): vscode.CancellationToken {
   return { isCancellationRequested: false, onCancellationRequested: () => ({ dispose: () => undefined }) };
 }
 
@@ -58,8 +59,20 @@ function matchesScope(filePath: string, patterns: string[]): boolean {
 
 // ── FixServiceImpl ────────────────────────────────────────────────────────────
 
+type ProposedFile = { path: string; content: string };
+
 class FixServiceImpl implements FixService {
+  /**
+   * Candidate file contents by repo#issue#iteration#k. The record keeps only paths
+   * and hashes (data-contracts.md), so contents live here for the IDE session.
+   */
+  private readonly candidateFiles = new Map<string, ProposedFile[]>();
+
   constructor(private readonly svc: Services) {}
+
+  private fileKey(repo: string, issue: number, n: number, k: number): string {
+    return `${repo}#${issue}#${n}#${k}`;
+  }
 
   // ── proposeFixes ──────────────────────────────────────────────────────────
 
@@ -84,12 +97,17 @@ class FixServiceImpl implements FixService {
 
     const candidates: Candidate[] = [];
     const repro = record.replication?.repro;
+    const n = record.fix.iterations.length + 1;
+    const iterationDropped: string[] = [];
 
     for (let k = 1; k <= numCandidates; k++) {
       if (token?.isCancellationRequested) { return R.err('Cancelled.'); }
 
       // Call provider fix stage for each candidate independently.
-      const stageResp = await provider.run(
+      // A candidate the provider cannot produce (e.g. no fix-<k> stub) is skipped.
+      let stageResp;
+      try {
+        stageResp = await provider.run(
         {
           stage: 'fix',
           issue,
@@ -103,6 +121,10 @@ class FixServiceImpl implements FixService {
         },
         token ?? neverCancelled(),
       );
+      } catch (err) {
+        if (k === 1) { return R.err(`Fix proposal failed: ${err instanceof Error ? err.message : String(err)}`); }
+        continue;
+      }
 
       const fixOut = stageResp.json as FixOutput;
       const files = stageResp.files ?? [];
@@ -125,6 +147,8 @@ class FixServiceImpl implements FixService {
 
       // A candidate that changes the reproduction test loses that test file.
       const filteredFiles = allowedFiles.filter((f) => f.path !== repro?.test_file);
+      if (filteredFiles.length < allowedFiles.length && repro?.test_file) droppedFiles.push(repro.test_file);
+      iterationDropped.push(...droppedFiles.filter((d) => !iterationDropped.includes(d)));
 
       if (filteredFiles.length === 0) {
         candidates.push({
@@ -157,6 +181,7 @@ class FixServiceImpl implements FixService {
       }
 
       seenHashes.add(diffHash);
+      this.candidateFiles.set(this.fileKey(repo, issue, n, k), filteredFiles);
 
       candidates.push({
         k,
@@ -169,7 +194,6 @@ class FixServiceImpl implements FixService {
       });
     }
 
-    const n = record.fix.iterations.length + 1;
     const iteration: FixIteration = {
       n,
       source: 'provider',
@@ -179,7 +203,7 @@ class FixServiceImpl implements FixService {
       base_sha: '',
       head_sha: '',
       summary: candidates.find((c) => c.status === 'survived')?.summary ?? 'Fix candidates proposed',
-      dropped_files: [],
+      dropped_files: iterationDropped,
       candidates,
       review: { verdict: 'ok', findings: [], stubbed: record.stubbed },
       verification: {
@@ -240,6 +264,12 @@ class FixServiceImpl implements FixService {
 
     const runToken = token ?? neverCancelled();
 
+    // The candidate runs as a runner overlay: its files plus the approved
+    // reproduction test on a worktree of the runner's HEAD (local-runner.md /overlays).
+    const overlayRef = await this.prepareOverlay(repo, issue, lastIter.n, candidateK, repro?.test_file ?? '');
+    if (!overlayRef.ok) { return R.err(overlayRef.error); }
+    const ref = overlayRef.value;
+
     // Quick check: run reproduction test quickRuns times.
     let reproFailed = 0;
     let reproRuns = 0;
@@ -252,7 +282,7 @@ class FixServiceImpl implements FixService {
           mode: 'single',
           test_path: repro?.test_file ?? '',
           runs: quickRuns,
-          ref: null,
+          ref,
         },
         runToken,
         () => {},
@@ -273,7 +303,7 @@ class FixServiceImpl implements FixService {
     let blocking = 0;
     try {
       const suiteResults = await executor.run(
-        { platform, mode: 'all', test_path: '', runs: 1, ref: null },
+        { platform, mode: 'all', test_path: '', runs: 1, ref },
         runToken,
         () => {},
       );
@@ -288,7 +318,10 @@ class FixServiceImpl implements FixService {
 
     // Determine candidate status.
     let status: Candidate['status'] = 'survived';
-    if (reproFailed > 0) {
+    if (reproRuns === 0) {
+      // Nothing ran: the candidate cannot be judged.
+      status = 'error';
+    } else if (reproFailed > 0) {
       // Still reproduces → rejected_repro.
       status = 'rejected_repro';
     } else if (blocking > 0) {
@@ -335,6 +368,59 @@ class FixServiceImpl implements FixService {
     return R.ok(updated);
   }
 
+  // ── Overlay for a candidate quick check ───────────────────────────────────
+
+  /**
+   * Build the runner overlay for candidate k: the user reviews each proposed
+   * file (PD-10), then the candidate files and the reproduction test are
+   * approved with the runner and registered on the runner's HEAD.
+   * Returns ref null when there is no runner overlay support (fakes, tests).
+   */
+  private async prepareOverlay(
+    repo: string,
+    issue: number,
+    n: number,
+    k: number,
+    testFile: string,
+  ): Promise<Result<RunRequest['ref'], string>> {
+    const files = this.candidateFiles.get(this.fileKey(repo, issue, n, k));
+    const rc = this.svc.runnerClient;
+    if (!files || !rc.createOverlay || !rc.approve || !rc.isPaired()) { return R.ok(null); }
+
+    const status = await rc.getStatus();
+    const head = status.ok ? status.value?.head : '';
+    if (!head) { return R.err('The runner did not report its HEAD commit; cannot build the candidate overlay.'); }
+
+    for (const f of files) {
+      if (this.svc.views.approveFile) {
+        const ok = await this.svc.views.approveFile(
+          f.path,
+          f.content,
+          `Fix candidate ${k} for #${issue}. The quick check runs it on your machine.`,
+        );
+        if (!ok) { return R.err(`You declined to run candidate ${k}.`); }
+      }
+    }
+
+    const overlayFiles: ProposedFile[] = [...files];
+    if (testFile) {
+      const test = await this.svc.workspace.readFile(testFile);
+      if (!test.ok) { return R.err(`Reproduction test ${testFile} could not be read: ${test.error}`); }
+      overlayFiles.push({ path: testFile, content: new TextDecoder().decode(test.value) });
+    }
+
+    for (const f of overlayFiles) {
+      const sha = await this.svc.workspace.sha256(new TextEncoder().encode(f.content));
+      this.svc.security.recordApproval(f.path, sha);
+      const a = await rc.approve(f.path, sha);
+      if (!a.ok) { return R.err(`Runner refused approval of ${f.path}: ${a.error}`); }
+    }
+
+    const ov = await rc.createOverlay(head, overlayFiles);
+    if (!ov.ok) { return R.err(`Runner refused the overlay: ${ov.error}`); }
+    return R.ok({ overlay: ov.value.overlay_id });
+  }
+
   // ── applySelected ─────────────────────────────────────────────────────────
 
   async applySelected(
@@ -356,9 +442,9 @@ class FixServiceImpl implements FixService {
     const selected = lastIter.candidates.find((c) => c.status === 'selected');
     if (!selected) { return R.err('No selected candidate. Run quick checks first.'); }
 
-    // Show diff review per file (services.views.approveFile not in contract — use showInfo).
+    // Final confirmation before anything is pushed (files were diff-reviewed at the quick check).
     const approved = await this.svc.views.showInfo(
-      `Apply fix candidate ${selected.k}? Files: ${selected.files_changed.join(', ')}`,
+      `Push fix candidate ${selected.k} to a ${lastIter.pr_draft ? 'draft ' : ''}PR? Files: ${selected.files_changed.join(', ')}`,
       'Apply',
       'Reject',
     );
@@ -374,12 +460,45 @@ class FixServiceImpl implements FixService {
       }
     }
 
-    // Create branch and PR through GitHub service.
+    // Commit the candidate (plus the reproduction test, so the PR carries its proof)
+    // to reprise/fix-N off the default branch, through the Git Data API (PD-19).
     const branchName = lastIter.branch; // reprise/fix-N
-    const prResult = await this.svc.github.createOrUpdatePr(
+    const gh = this.svc.github;
+    let baseBranch = 'main';
+    if (gh.getDefaultBranch) {
+      const b = await gh.getDefaultBranch(repo);
+      if (b.ok) { baseBranch = b.value; }
+    }
+
+    let baseSha = lastIter.base_sha;
+    let headSha = lastIter.head_sha;
+    const files = this.candidateFiles.get(this.fileKey(repo, issue, lastIter.n, selected.k));
+    if (gh.commitFiles) {
+      if (!files || files.length === 0) {
+        return R.err('The candidate files are no longer available in this session. Run "Propose Fixes" again.');
+      }
+      const toCommit: ProposedFile[] = [...files];
+      const testFile = record.replication?.repro?.test_file;
+      if (testFile && record.replication.repro.test_origin === 'provided') {
+        const t = await this.svc.workspace.readFile(testFile);
+        if (t.ok) { toCommit.push({ path: testFile, content: new TextDecoder().decode(t.value) }); }
+      }
+      const commit = await gh.commitFiles(
+        repo,
+        branchName,
+        baseBranch,
+        toCommit,
+        `Fix #${issue}: ${selected.summary}\n\nCandidate ${selected.k} of ${lastIter.candidates.length}, proposed by ${record.provider}.`,
+      );
+      if (!commit.ok) { return R.err(`Commit to ${branchName} failed: ${commit.error}`); }
+      baseSha = baseSha || commit.value.parent;
+      headSha = commit.value.sha;
+    }
+
+    const prResult = await gh.createOrUpdatePr(
       repo,
       branchName,
-      'main',
+      baseBranch,
       `Fix #${issue}: ${selected.summary}`,
       buildPrBody(record, lastIter, selected),
       lastIter.pr_draft,
@@ -389,7 +508,8 @@ class FixServiceImpl implements FixService {
     const updatedIteration: FixIteration = {
       ...lastIter,
       pr: prResult.value.html_url,
-      head_sha: `sha-candidate-${selected.k}`,
+      base_sha: baseSha,
+      head_sha: headSha || `sha-candidate-${selected.k}`,
     };
     const updatedIterations = [...record.fix.iterations];
     updatedIterations[updatedIterations.length - 1] = updatedIteration;

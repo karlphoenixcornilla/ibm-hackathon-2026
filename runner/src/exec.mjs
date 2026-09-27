@@ -98,8 +98,11 @@ export async function runCommand(opts) {
       cwd,
       env,
       stdio: ['ignore', 'pipe', 'pipe'],
-      // On Windows, spawn a process group so we can kill the tree.
-      ...(osPlatform === 'win32' ? { detached: true } : {}),
+      windowsHide: true,
+      // POSIX: own process group so killTree can signal -pid. Not on Windows:
+      // a detached child gets its own console and its piped output is lost
+      // (every run would look like a silent pass); taskkill /T kills the tree instead.
+      ...(osPlatform === 'win32' ? {} : { detached: true }),
     });
 
     /** @param {Buffer} chunk */

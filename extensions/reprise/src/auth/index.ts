@@ -25,7 +25,16 @@ export function createAuth(
     if (stored) {
       cachedToken = stored;
       emitter.fire({ signedIn: true });
+      return;
     }
+    // Reuse a GitHub session the user already granted to Reprise (G-7), without prompting.
+    try {
+      const session = await vscode.authentication.getSession(GITHUB_AUTH_PROVIDER, GITHUB_SCOPES, { silent: true });
+      if (session?.accessToken && !cachedToken) {
+        cachedToken = session.accessToken;
+        emitter.fire({ signedIn: true });
+      }
+    } catch { /* no GitHub provider in this host */ }
   }
 
   // ── Helpers ──────────────────────────────────────────────────────────────
@@ -69,7 +78,7 @@ export function createAuth(
       prompt:
         'Enter a GitHub fine-grained personal access token. ' +
         'Required permissions: Contents (read/write), Metadata (read), ' +
-        'Issues (read), Pull requests (read/write), Actions (read/write).',
+        'Issues (read/write), Pull requests (read/write), Actions (read/write), Workflows (read/write, only for Set Up CI Runs).',
       password: true,
       placeHolder: 'github_pat_…',
       ignoreFocusOut: true,
@@ -79,7 +88,7 @@ export function createAuth(
 
   // ── Public API ────────────────────────────────────────────────────────────
 
-  async function signIn(): Promise<import('../util/result').Result<string, string>> {
+  async function signIn(): Promise<Result<string, string>> {
     // G-7: built-in provider
     let token = await tryBuiltinAuth();
 

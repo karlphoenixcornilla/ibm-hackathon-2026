@@ -79,32 +79,53 @@ class BugReportsTreeProvider
     this.loadIssues();
   }
 
+  private reloadRequested = false;
+
   private async loadIssues(): Promise<void> {
-    if (this.loading) { return; }
+    // A refresh during a load (e.g. sign-in finishing) runs once the load ends.
+    if (this.loading) { this.reloadRequested = true; return; }
     this.loading = true;
+    try {
+      const repoKey = this.context.workspaceState.get<string>('reprise.linkedRepo');
+      if (!repoKey) {
+        this.items = [];
+        return;
+      }
+      if (!this.services.auth.isSignedIn()) {
+        this.items = [];
+        this.status = 'Sign in to GitHub to see Bug Reports';
+        return;
+      }
 
-    const repoKey = this.context.workspaceState.get<string>('reprise.linkedRepo');
-    if (!repoKey) {
+      const result = await this.services.github.listIssues(repoKey);
+      if (!result.ok) {
+        this.items = [];
+        this.status = `Could not load bug reports: ${result.error}`;
+        this.services.views.showError(`Reprise: ${result.error}`);
+        return;
+      }
+
+      this.status = null;
+      this.items = result.value.map((issue) => ({
+        issue,
+        record: this.services.store.getCached(repoKey, issue.number),
+      }));
+    } catch (err) {
+      // Never leave `loading` stuck: that silently disabled every later refresh.
       this.items = [];
+      this.status = `Could not load bug reports: ${err instanceof Error ? err.message : String(err)}`;
+    } finally {
+      this.loading = false;
       this._onDidChangeTreeData.fire();
-      this.loading = false;
-      return;
+      if (this.reloadRequested) {
+        this.reloadRequested = false;
+        void this.loadIssues();
+      }
     }
-
-    const result = await this.services.github.listIssues(repoKey);
-    if (!result.ok) {
-      this.services.views.showError(`Reprise: ${result.error}`);
-      this.loading = false;
-      return;
-    }
-
-    this.items = result.value.map((issue) => ({
-      issue,
-      record: this.services.store.getCached(repoKey, issue.number),
-    }));
-    this._onDidChangeTreeData.fire();
-    this.loading = false;
   }
+
+  /** Why the list is empty, when it is not simply "no issues". */
+  private status: string | null = null;
 
   getTreeItem(element: BugReportTreeItem | vscode.TreeItem): vscode.TreeItem {
     return element;
@@ -121,8 +142,9 @@ class BugReportsTreeProvider
     }
     if (this.items.length === 0) {
       return [
-        Object.assign(new vscode.TreeItem('No open bug reports found'), {
+        Object.assign(new vscode.TreeItem(this.status ?? (this.loading ? 'Loading bug reports…' : 'No open bug reports found')), {
           contextValue: 'reprise.placeholder',
+          tooltip: this.status ?? undefined,
         }),
       ];
     }
@@ -368,6 +390,7 @@ export function createViews(
     const key = `${repo}#${issue}`;
     const existing = panels.get(key);
     if (existing) {
+      existing.webview.html = buildPanelHtml(existing.webview, repo, issue, services.store.getCached(repo, issue), styleUri);
       existing.reveal();
       return;
     }
@@ -418,6 +441,50 @@ export function createViews(
     runsProvider.removeRun(issueNumber);
   }
 
+  // ── approveFile (PD-10): diff view + explicit approval ────────────────────
+  // Proposed content lives in a read-only virtual document; the diff compares it
+  // with the file in the opened folder (or an empty document for a new file).
+  const PROPOSAL_SCHEME = 'reprise-proposal';
+  const proposals = new Map<string, string>();
+  const proposalEmitter = new vscode.EventEmitter<vscode.Uri>();
+  context.subscriptions.push(
+    proposalEmitter,
+    vscode.workspace.registerTextDocumentContentProvider(PROPOSAL_SCHEME, {
+      onDidChange: proposalEmitter.event,
+      provideTextDocumentContent: (uri) => proposals.get(uri.toString()) ?? '',
+    })
+  );
+  let proposalSeq = 0;
+
+  async function approveFile(path: string, content: string, reason: string): Promise<boolean> {
+    const seq = ++proposalSeq;
+    const proposedUri = vscode.Uri.from({ scheme: PROPOSAL_SCHEME, path: `/${path}`, query: `proposed=${seq}` });
+    proposals.set(proposedUri.toString(), content);
+    proposalEmitter.fire(proposedUri);
+
+    let leftUri = vscode.Uri.from({ scheme: PROPOSAL_SCHEME, path: `/${path}`, query: `empty=${seq}` });
+    const root = services.workspace.getRootUri();
+    if (root) {
+      const current = vscode.Uri.joinPath(root, path);
+      try {
+        await vscode.workspace.fs.stat(current);
+        leftUri = current;
+      } catch { /* new file: compare against empty */ }
+    }
+
+    try {
+      await vscode.commands.executeCommand('vscode.diff', leftUri, proposedUri, `Reprise proposal: ${path}`, { preview: true });
+      const choice = await vscode.window.showInformationMessage(
+        `Approve ${path}?`,
+        { modal: true, detail: `${reason}\n\nReprise writes and runs this file only if you approve it.` },
+        'Approve'
+      );
+      return choice === 'Approve';
+    } finally {
+      proposals.delete(proposedUri.toString());
+    }
+  }
+
   // Expose run tracking methods on the returned service (not in the contract,
   // but accessible to wiring via type assertion when needed)
   const viewsService: ViewsService & {
@@ -430,6 +497,7 @@ export function createViews(
     setStatusBar,
     showInfo,
     showError,
+    approveFile,
     onRunStarted,
     onRunFinished,
   };

@@ -37,8 +37,18 @@ jobs:
         run: npm run depcheck
         working-directory: extensions/reprise
 
+      - name: Generated assets are up to date
+        run: |
+          npm run gen:assets
+          git diff --exit-code -- src/providers/bob/prompts.ts src/exec/ci/templates.ts
+        working-directory: extensions/reprise
+
       - name: Unit tests
         run: npm test
+        working-directory: extensions/reprise
+
+      - name: Web bundle builds
+        run: npm run compile
         working-directory: extensions/reprise
 
   runner:
@@ -54,8 +64,33 @@ jobs:
           node-version: "22"
 
       - name: Runner unit tests
-        run: node --test test/**/*.test.mjs
+        run: npm test
         working-directory: runner
+
+      - name: Bundle builds and parses
+        run: |
+          node runner/build.mjs
+          node --check runner/dist/reprise-runner.mjs
+
+  dashboard:
+    name: Dashboard — tests and sample build
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install extension deps (schema drift check uses ajv)
+        run: npm ci
+        working-directory: extensions/reprise
+
+      - name: Dashboard tests
+        run: npm test
+        working-directory: dashboard
 
   diagrams:
     name: Mermaid diagrams — parse check
