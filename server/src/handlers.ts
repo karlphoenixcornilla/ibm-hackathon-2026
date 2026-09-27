@@ -1,8 +1,10 @@
 // handlers.ts — seams for the agentic proposal (#32) and PR creation (#34).
 // Routes call these; the defaults are stubs until those issues provide real implementations.
 
-import type { CoreServices } from '@reprise/core';
-import type { PrCreated, PrRequest, Proposal } from './api/types';
+import type { CancellationToken, CoreServices } from '@reprise/core';
+import type { LocalCheck, PrCreated, PrRequest, Proposal } from './api/types';
+import type { RelayExecutor } from './relay-executor';
+import type { RunnerContext } from './repo-context';
 
 export interface HandlerContext {
   core: CoreServices;
@@ -17,6 +19,20 @@ export interface ProposeHandler {
 
 export interface PrHandler {
   createPr(ctx: HandlerContext, input: PrRequest): Promise<PrCreated>;
+}
+
+export interface CheckContext extends HandlerContext {
+  /** The fix to try, as a unified diff. */
+  diff: string;
+  /** The paired runner; undefined when no runner connection was made (mock mode). */
+  runner: RunnerContext | undefined;
+  executor: RelayExecutor;
+  cancel: CancellationToken;
+}
+
+/** Applies a fix on the user's machine and tests it there (#31). */
+export interface CheckHandler {
+  check(ctx: CheckContext): Promise<LocalCheck>;
 }
 
 /** Thrown by a handler that is not wired yet; routes map it to 501. */
