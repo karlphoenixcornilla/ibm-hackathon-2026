@@ -17,6 +17,7 @@ import { createLocalExecutor } from './exec/local/index';
 import { createCiExecutor } from './exec/ci/index';
 import { createProviders } from './providers/index';
 import type { ProvidersOptions } from './providers/index';
+import { AgentProvider } from './providers/agent-provider';
 import { createPipeline } from './pipeline/index';
 import { createStats } from './stats/index';
 import { createSecurity } from './security/index';
@@ -58,6 +59,14 @@ export interface CoreDeps {
   notifier?: NotifierService;
   runner?: RunnerClientOptions;
   providers?: ProvidersOptions;
+  /**
+   * URL of the agentic chat-completions proxy (AWS Lambda → Bedrock). When set,
+   * an AgentProvider (id "bedrock") is registered and made the active provider
+   * unless `providers.active` overrides it.
+   */
+  agentUrl?: string;
+  /** fetch implementation for the agent provider (injectable for tests). */
+  fetchImpl?: typeof fetch;
   /** Replace any service outright (e.g. fakes in tests, or a scripted executor). */
   overrides?: Partial<Services>;
 }
@@ -109,7 +118,15 @@ export function buildCore(deps: CoreDeps): CoreServices {
     local: createLocalExecutor(svc),
     ci: createCiExecutor(svc),
   }));
-  provide('providers', () => createProviders(svc, deps.providers));
+  provide('providers', () => {
+    const opts: ProvidersOptions = { ...(deps.providers ?? {}) };
+    if (deps.agentUrl) {
+      const agent = new AgentProvider({ url: deps.agentUrl, fetchImpl: deps.fetchImpl });
+      opts.providers = [...(opts.providers ?? []), agent];
+      if (!opts.active) { opts.active = agent.id; }
+    }
+    return createProviders(svc, opts);
+  });
   provide('pipeline', () => createPipeline(svc));
   provide('fix', () => createFix(svc));
   provide('verify', () => createVerify(svc));

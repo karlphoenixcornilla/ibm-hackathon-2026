@@ -66,11 +66,16 @@ const TRUSTED_HOSTNAMES = new Set([
   'api.groq.com',          // groq (future)
 ]);
 
+/** AWS Lambda Function URLs (the agentic proxy): <id>.lambda-url.<region>.on.aws */
+const LAMBDA_URL_HOST = /\.lambda-url\.[a-z0-9-]+\.on\.aws$/;
+
 /** Return true if the URL's host is on the allow-list. */
 export function isTrustedUrl(url: string): boolean {
   try {
     const u = new URL(url);
-    return TRUSTED_HOSTNAMES.has(u.hostname);
+    if (TRUSTED_HOSTNAMES.has(u.hostname)) { return true; }
+    if (LAMBDA_URL_HOST.test(u.hostname)) { return true; }
+    return false;
   } catch {
     return false;
   }
