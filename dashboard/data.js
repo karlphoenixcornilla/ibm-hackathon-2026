@@ -1,5 +1,5 @@
 export async function readJson(path) {
-  const response = await fetch(path);
+  const response = await fetch(path, { cache: 'no-store' });
   if (!response.ok) throw new Error(`Data request failed (${response.status})`);
   return response.json();
 }
