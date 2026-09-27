@@ -83,27 +83,30 @@ class BugReportsTreeProvider
     if (this.loading) { return; }
     this.loading = true;
 
-    const repoKey = this.context.workspaceState.get<string>('reprise.linkedRepo');
-    if (!repoKey) {
-      this.items = [];
+    try {
+      const repoKey = this.context.workspaceState.get<string>('reprise.linkedRepo');
+      if (!repoKey || !this.services.auth.isSignedIn()) {
+        this.items = [];
+        this._onDidChangeTreeData.fire();
+        return;
+      }
+
+      const result = await this.services.github.listIssues(repoKey);
+      if (!result.ok) {
+        this.services.views.showError(`Reprise: ${result.error}`);
+        return;
+      }
+
+      this.items = result.value.map((issue) => ({
+        issue,
+        record: this.services.store.getCached(repoKey, issue.number),
+      }));
       this._onDidChangeTreeData.fire();
+    } catch (err) {
+      this.services.views.showError(`Reprise: could not load bug reports: ${(err as Error).message}`);
+    } finally {
       this.loading = false;
-      return;
     }
-
-    const result = await this.services.github.listIssues(repoKey);
-    if (!result.ok) {
-      this.services.views.showError(`Reprise: ${result.error}`);
-      this.loading = false;
-      return;
-    }
-
-    this.items = result.value.map((issue) => ({
-      issue,
-      record: this.services.store.getCached(repoKey, issue.number),
-    }));
-    this._onDidChangeTreeData.fire();
-    this.loading = false;
   }
 
   getTreeItem(element: BugReportTreeItem | vscode.TreeItem): vscode.TreeItem {
@@ -116,6 +119,14 @@ class BugReportsTreeProvider
       return [
         Object.assign(new vscode.TreeItem('Sign in and link a repository to see Bug Reports'), {
           contextValue: 'reprise.placeholder',
+        }),
+      ];
+    }
+    if (!this.services.auth.isSignedIn()) {
+      return [
+        Object.assign(new vscode.TreeItem('Sign in to GitHub to see Bug Reports'), {
+          contextValue: 'reprise.placeholder',
+          command: { command: 'reprise.signIn', title: 'Sign In to GitHub' },
         }),
       ];
     }
@@ -328,7 +339,9 @@ export function createViews(
 
   context.subscriptions.push(
     vscode.window.registerTreeDataProvider('reprise.bugReports', bugReportsProvider),
-    vscode.window.registerTreeDataProvider('reprise.runs', runsProvider)
+    vscode.window.registerTreeDataProvider('reprise.runs', runsProvider),
+    // Load issues once the token is restored at startup or entered by the user
+    services.auth.onDidChangeSession(() => bugReportsProvider.refresh())
   );
 
   // Listen to executor events for the Runs tree (FakeExecutor now)

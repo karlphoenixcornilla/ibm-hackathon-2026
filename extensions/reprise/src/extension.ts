@@ -27,7 +27,13 @@ export function activate(context: vscode.ExtensionContext): void {
   // ── Commands ─────────────────────────────────────────────────────────────
   const cmds: Array<[string, () => void]> = [
     // T1
-    ['reprise.signIn', () => { services.auth.signIn(); }],
+    ['reprise.signIn', () => {
+      services.auth.signIn().then((result) => {
+        if (!result.ok) {
+          vscode.window.showErrorMessage(`Reprise: sign-in failed — ${result.error}`);
+        }
+      });
+    }],
     ['reprise.signOut', () => { services.auth.signOut(); }],
     ['reprise.linkRepository', () => {
       vscode.window.showInputBox({ prompt: 'Enter owner/repo to link (e.g. acme/my-app)' })

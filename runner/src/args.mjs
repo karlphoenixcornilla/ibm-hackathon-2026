@@ -6,7 +6,7 @@
  */
 
 const DEFAULT_PORT = 47410;
-const DEFAULT_ORIGIN = 'https://owner.github.io'; // placeholder; real value set by team
+const DEFAULT_ORIGIN = 'https://karlphoenixcornilla.github.io'; // Reprise IDE on GitHub Pages (/ibm-hackathon-2026/ide/)
 
 /**
  * Parse process.argv arguments.
@@ -56,7 +56,7 @@ Usage:
 Options:
   --root <path>          Path to the repository clone (must contain .reprise.yml). Required.
   --port <number>        Port to listen on (default: 47410; tries next 9 if busy).
-  --allow-origin <url>   Additional allowed origin (may repeat). Default: GitHub Pages origin.
+  --allow-origin <url>   Additional allowed origin (may repeat). Default: https://karlphoenixcornilla.github.io.
   --help                 Print this message and exit.
 
 Example:

@@ -17,7 +17,10 @@ import type {
 import type { Result } from '../util/result';
 import { Result as R } from '../util/result';
 
-const RUNNER_BASE_URL = 'http://127.0.0.1:47410';
+const RUNNER_HOST = 'http://127.0.0.1';
+const DEFAULT_RUNNER_PORT = 47410;
+// The runner falls back to the next 9 ports when its port is busy (runner/src/server.mjs findPort)
+const RUNNER_PORT_SPAN = 10;
 const HEARTBEAT_INTERVAL_MS = 30_000; // 30 s per spec
 const HEARTBEAT_MISS_LIMIT = 2;
 
@@ -33,7 +36,7 @@ export function createRunnerClient(
 
 class RunnerClient implements RunnerClientService {
   private sessionToken: string | null = null;
-  private baseUrl: string = RUNNER_BASE_URL;
+  private baseUrl = `${RUNNER_HOST}:${DEFAULT_RUNNER_PORT}`;
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private missedHeartbeats = 0;
   private _paired = false;
@@ -47,16 +50,40 @@ class RunnerClient implements RunnerClientService {
 
   async pair(code: string): Promise<Result<PairResponse, string>> {
     const body: PairRequest = { code };
-    const res = await this.fetchRunner<PairResponse>('/pair', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-      requiresAuth: false,
-    });
+    const start = vscode.workspace.getConfiguration('reprise').get<number>('runnerPort', DEFAULT_RUNNER_PORT);
+    const ports = Array.from({ length: RUNNER_PORT_SPAN }, (_, i) => start + i);
 
-    if (!res.ok) return R.err(res.error);
+    // Use the first port where a runner answers. A network error means nothing is
+    // listening there, or a runner that does not allow this page's origin (its CORS
+    // preflight fails), so try the next port. Any HTTP answer, including a wrong
+    // code, comes from the runner to use, so stop there.
+    let pairResp: PairResponse | null = null;
+    for (const port of ports) {
+      const baseUrl = `${RUNNER_HOST}:${port}`;
+      let response: Response;
+      try {
+        response = await fetch(`${baseUrl}/pair`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+      } catch {
+        continue;
+      }
+      if (!response.ok) return R.err(await errorMessage(response));
+      this.baseUrl = baseUrl;
+      pairResp = await response.json() as PairResponse;
+      break;
+    }
 
-    const pairResp = res.value;
+    if (!pairResp) {
+      return R.err(
+        `No Reprise Runner accepted this page on 127.0.0.1 ports ${ports[0]}–${ports[ports.length - 1]}. ` +
+          "Check the runner is running and that its \"Allowed origins\" line lists this page's origin " +
+          '(otherwise restart it with --allow-origin <origin>).'
+      );
+    }
+
     this.sessionToken = pairResp.session;
     this._paired = true;
     this.emitter.fire({ paired: true });
@@ -294,14 +321,7 @@ class RunnerClient implements RunnerClientService {
         body,
       });
 
-      if (!response.ok) {
-        let msg = `HTTP ${response.status}`;
-        try {
-          const j = await response.json() as { error?: string };
-          if (j.error) msg = j.error;
-        } catch { /**/ }
-        return R.err(msg);
-      }
+      if (!response.ok) return R.err(await errorMessage(response));
 
       const data = await response.json() as T;
       return R.ok(data);
@@ -309,4 +329,13 @@ class RunnerClient implements RunnerClientService {
       return R.err((err as Error).message);
     }
   }
+}
+
+/** The runner's `{ error }` message, or the HTTP status. */
+async function errorMessage(response: Response): Promise<string> {
+  try {
+    const j = await response.json() as { error?: string };
+    if (j.error) return j.error;
+  } catch { /**/ }
+  return `HTTP ${response.status}`;
 }
