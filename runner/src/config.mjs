@@ -73,7 +73,8 @@ export function detectHead(root) {
 /**
  * Very small subset YAML parser for .reprise.yml.
  * Handles: mappings (key: value), inline strings, numbers, booleans,
- * block sequences (- item), nested mappings via indentation.
+ * block sequences (- item), nested mappings via indentation,
+ * trailing # comments, and inline flow maps ({ key: val, ... }).
  * @param {string} text
  * @returns {RunnerConfig}
  */
@@ -190,22 +191,88 @@ function parseYamlSequence(lines, baseIndent) {
 }
 
 /**
+ * Strip a trailing unquoted YAML comment from a scalar string.
+ * e.g. `"local                    # local | ci"` → `"local"`
+ * e.g. `"{ min: 5 }   # comment"` → `"{ min: 5 }"`
+ * Quoted values ('...' / "...") are returned as-is; the # inside
+ * quoted strings is left untouched.
+ * @param {string} s  Raw value string (already trimmed)
+ * @returns {string}
+ */
+function stripComment(s) {
+  // Don't strip from quoted strings (# inside quotes is not a comment)
+  if (s.startsWith('"') || s.startsWith("'")) {
+    return s;
+  }
+  // For flow collections, strip the comment that follows the closing brace/bracket
+  // e.g. "{ min: 5, max: 10 }   # optional override" → "{ min: 5, max: 10 }"
+  if (s.startsWith('{') || s.startsWith('[')) {
+    const closeChar = s.startsWith('{') ? '}' : ']';
+    const closeIdx = s.lastIndexOf(closeChar);
+    if (closeIdx !== -1) {
+      return s.slice(0, closeIdx + 1).trimEnd();
+    }
+    return s;
+  }
+  // Plain scalar: a comment starts at " #" (whitespace then #)
+  const idx = s.search(/\s+#/);
+  return idx === -1 ? s : s.slice(0, idx).trimEnd();
+}
+
+/**
+ * Parse an inline YAML flow mapping: { key: val, key2: val2 }.
+ * Returns a plain object or null if the string is not a flow map.
  * @param {string} s
+ * @returns {Record<string, unknown> | null}
+ */
+function parseFlowMap(s) {
+  if (!s.startsWith('{') || !s.endsWith('}')) return null;
+  const inner = s.slice(1, -1).trim();
+  if (!inner) return {};
+  /** @type {Record<string, unknown>} */
+  const obj = {};
+  // Simple comma-split; doesn't handle nested braces (sufficient for .reprise.yml)
+  for (const pair of inner.split(',')) {
+    const colonIdx = pair.indexOf(':');
+    if (colonIdx === -1) continue;
+    const k = pair.slice(0, colonIdx).trim();
+    const v = pair.slice(colonIdx + 1).trim();
+    if (k) obj[k] = scalarValue(v);
+  }
+  return obj;
+}
+
+/**
+ * @param {string} s  Raw value string (already trimmed from the YAML line)
  * @returns {unknown}
  */
 function scalarValue(s) {
+  // Strip trailing comments before any other processing
+  s = stripComment(s);
+
   if (s === 'true') return true;
   if (s === 'false') return false;
   if (s === 'null' || s === '~') return null;
-  const n = Number(s);
-  if (!isNaN(n) && s !== '') return n;
+  if (s === '') return null;
+
+  // inline flow map { ... }
+  if (s.startsWith('{')) {
+    const map = parseFlowMap(s);
+    if (map !== null) return map;
+  }
+
+  // inline sequence [a, b, c]
+  if (s.startsWith('[') && s.endsWith(']')) {
+    return s.slice(1, -1).split(',').map(x => scalarValue(x.trim())).filter(x => x !== null && x !== '');
+  }
+
   // strip surrounding quotes
   if ((s.startsWith('"') && s.endsWith('"')) || (s.startsWith("'") && s.endsWith("'"))) {
     return s.slice(1, -1);
   }
-  // inline sequence [a, b, c]
-  if (s.startsWith('[') && s.endsWith(']')) {
-    return s.slice(1, -1).split(',').map(x => scalarValue(x.trim())).filter(x => x !== '');
-  }
+
+  const n = Number(s);
+  if (!isNaN(n) && s !== '') return n;
+
   return s;
 }

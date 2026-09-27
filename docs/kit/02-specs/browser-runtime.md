@@ -6,16 +6,17 @@ Implements R-16, ADR-1, ADR-2, ADR-12. Decisions: PD-4, PD-21, PD-22. Gates: G-6
 
 | Browser | Status | Minimum version |
 | --- | --- | --- |
-| Google Chrome, desktop (Windows, macOS, Linux) | Supported, tested | **(fill in from G-20)** |
-| Microsoft Edge, desktop (Windows, macOS, Linux) | Supported, tested | **(fill in from G-20)** |
-| Other Chromium browsers (Brave, Opera, Vivaldi, Arc) | Should work if the API is on by default; not tested unless G-20 tests them | Same as Chrome's Chromium version |
-| Firefox, Safari, any mobile browser | Not supported (R-16) | — |
+| Any Chromium-based desktop browser (Windows, macOS, Linux) that exposes `window.showDirectoryPicker` in a secure context: Chrome, Edge, Brave, Opera, Vivaldi, Arc and others | Supported. The startup check below is the gate, not a list of browser names | The Chromium version that ships the File System Access API: 86 (G-20) |
+| A Chromium desktop browser with the API turned off (for example by a privacy setting or policy, G-28) | Shows the unsupported-browser page; the user can turn the API on or use Chrome or Edge | — |
+| Firefox, Safari, any mobile browser (including Chrome and Samsung Internet on Android) | Not supported (R-16): no directory picker | — |
+
+The team tests Chrome and Edge (G-20); other Chromium browsers are covered by the capability check rather than by testing each one. Do not add a user-agent allow-list.
 
 ## Startup check
 
 Before the workbench loads Reprise features, the IDE checks for `window.showDirectoryPicker` and a secure context (`window.isSecureContext`). If either is missing, it shows the **unsupported-browser page** instead of the editor:
 
-> Reprise IDE needs a browser that can open folders on your computer. Open this page in Google Chrome or Microsoft Edge on a desktop computer. You can still browse results on the dashboard.
+> Reprise IDE needs a Chromium-based desktop browser that can open folders on your computer, such as Chrome, Edge, Brave, Opera, Vivaldi or Arc. Firefox, Safari and mobile browsers aren't supported yet. If your browser blocks folder access, turn it on in the browser's settings or use Chrome or Edge. You can still browse results on the dashboard.
 
 The page links to the dashboard (`../`). It has no other content. Where this check lives in the web build (the embedder page or the extension) is recorded in `ide-fork.md` in phase 1.
 

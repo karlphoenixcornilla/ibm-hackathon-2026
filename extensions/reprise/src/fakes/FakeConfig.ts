@@ -2,7 +2,6 @@
 import type { ConfigService, RepriseConfig } from '../contracts/services';
 import type { Result } from '../util/result';
 import { Result as R } from '../util/result';
-import type * as vscode from 'vscode';
 
 const FAKE_CONFIG: RepriseConfig = {
   version: 3,
@@ -55,7 +54,7 @@ export class FakeConfig implements ConfigService {
     return this.config;
   }
 
-  getUri(): vscode.Uri | null {
+  getUri(): string | null {
     return null;
   }
 

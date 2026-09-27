@@ -2,7 +2,6 @@
 import type { WorkspaceService } from '../contracts/services';
 import type { Result } from '../util/result';
 import { Result as R } from '../util/result';
-import * as vscode from 'vscode';
 
 export class FakeWorkspace implements WorkspaceService {
   private files = new Map<string, Uint8Array>();
@@ -27,7 +26,7 @@ export class FakeWorkspace implements WorkspaceService {
       .join('');
   }
 
-  getRootUri(): vscode.Uri | null {
-    return vscode.Uri.parse('fake:///workspace');
+  getRootUri(): string | null {
+    return 'fake:///workspace';
   }
 }

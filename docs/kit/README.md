@@ -1,3 +1,5 @@
+> Historical document: pivot #29 supersedes IDE/Code-OSS and static/Pages requirements, including work in #12, #14 and #22. See [the repository README](../../README.md) for current integration instructions.
+
 # Reprise IDE — Build Kit (v3, browser-based)
 
 This kit replaces v2 (desktop VS Code fork with installers). It defines **Reprise IDE** as a **browser-based IDE**: the web build of a VS Code (Code - OSS) fork, served as static files from GitHub Pages and opened in a Chromium-based browser (Google Chrome, Microsoft Edge and other browsers built on Chromium, R-16). The user opens their local repository folder in the browser through the **File System Access API**. The IDE connects to GitHub and the user's repository, lists bug reports, and, when the user acknowledges a report, recognises and replicates the bug by providing or validating a failing test and running it on the right platform (Windows native, Android, iOS, macOS, Linux). It then helps fix the bug and verifies the fix with repeated runs and a regression check. Results appear in the IDE and on a public dashboard.
@@ -10,7 +12,7 @@ The AI layer is a **stub** for now, behind a provider interface ready for Claude
 
 | Area | v2 | v3 |
 | --- | --- | --- |
-| Product form | Desktop Code - OSS fork, installers per OS | Web build of the Code - OSS fork, hosted on GitHub Pages, Chrome and Edge (Chromium) only (R-16) |
+| Product form | Desktop Code - OSS fork, installers per OS | Web build of the Code - OSS fork, hosted on GitHub Pages, Chromium-based desktop browsers only (R-16) |
 | Opening the project | Native file system | File System Access API directory handle, through the workbench's "Open Folder" (`browser-runtime.md`) |
 | Reprise extension | Node extension host | **Web extension** running in the browser's web-worker extension host: no Node APIs, no child processes (ADR-2) |
 | Local test runs | Extension spawns processes | Reprise Runner on `127.0.0.1`, paired with the tab (`local-runner.md`) |

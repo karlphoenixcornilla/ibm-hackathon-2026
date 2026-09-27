@@ -1,4 +1,6 @@
-import { readJson, validate, recordPath } from './data.js';
+import { readJson, validate, recordPath, createDataSource } from './data.js';
+
+const dataSource = createDataSource(globalThis.repriseDashboard);
 
 const main = document.querySelector('main');
 const names = {

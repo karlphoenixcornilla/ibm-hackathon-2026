@@ -6,7 +6,6 @@
  */
 
 const DEFAULT_PORT = 47410;
-const DEFAULT_ORIGIN = 'https://owner.github.io'; // placeholder; real value set by team
 
 /**
  * Parse process.argv arguments.
@@ -18,7 +17,7 @@ export function parseArgs(argv) {
   let root = null;
   let port = DEFAULT_PORT;
   /** @type {string[]} */
-  const allowOrigins = [DEFAULT_ORIGIN, 'http://localhost:8080'];
+  const allowOrigins = [];
 
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -56,7 +55,7 @@ Usage:
 Options:
   --root <path>          Path to the repository clone (must contain .reprise.yml). Required.
   --port <number>        Port to listen on (default: 47410; tries next 9 if busy).
-  --allow-origin <url>   Additional allowed origin (may repeat). Default: GitHub Pages origin.
+  --allow-origin <url>   Allowed client origin (may repeat). No origins trusted by default.
   --help                 Print this message and exit.
 
 Example:

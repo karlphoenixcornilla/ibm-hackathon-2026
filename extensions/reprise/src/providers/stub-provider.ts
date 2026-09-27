@@ -2,7 +2,7 @@
 // Owned by: T3
 // Spec: 02-specs/ai-providers.md §Stub provider, PD-11
 
-import type * as vscode from 'vscode';
+import type * as runtime from '../contracts/runtime';
 import type { Provider, StageRequest, StageResponse } from '../contracts/provider';
 import type { WorkspaceService } from '../contracts/services';
 import { validateStageOutput } from './schema-validator';
@@ -13,7 +13,7 @@ export class StubProvider implements Provider {
 
   constructor(private readonly workspace: WorkspaceService) {}
 
-  async run(req: StageRequest, _token: vscode.CancellationToken): Promise<StageResponse> {
+  async run(req: StageRequest, _token: runtime.CancellationToken): Promise<StageResponse> {
     const { stage, issue, vars } = req;
 
     // Determine the stub file path

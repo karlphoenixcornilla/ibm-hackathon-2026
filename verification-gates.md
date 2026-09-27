@@ -1,14 +1,16 @@
+> Historical document: pivot #29 supersedes IDE/Code-OSS and static/Pages requirements, including work in #12, #14 and #22. See [the repository README](README.md) for current integration instructions.
+
 # Verification Gates — Results
 
 Recorded during base implementation. Phase 0 gates researched; Phase 1 gates require the actual Code-OSS fork build and browser testing.
 
 | Gate | Description | Result | Notes |
 | ---- | ----------- | ------ | ----- |
-| G-1 | Web build works at the pinned tag | **Pending** — requires build machine with Code-OSS prerequisites (Node 22, 6 GB RAM). Tag to pin: choose latest stable release of microsoft/vscode (e.g. 1.96.x). | Run `yarn web` at the tag; record output folder and size in `ide-fork.md`. |
-| G-2 | Built-in web extension mechanism exists | **Likely PASS** — `microsoft/vscode` extensions/ already contains built-in extensions with `"browser"` entry points (e.g. `extensions/git-base/`, `extensions/github/`). Reprise follows the same pattern. Fallback: load via web workbench config (`--extensionPath`). | Confirm by listing `extensions/*/package.json` and checking for `"browser"` field at the pinned tag. |
-| G-3 | `product.json` fields for rebranding | **Pending** — fields `nameShort`, `nameLong`, `applicationName`, `extensionsGallery` confirmed to exist at the pinned tag. Changes: set `nameShort="Reprise"`, `nameLong="Reprise IDE"`, `applicationName="reprise"`, remove `extensionsGallery`. | Record old/new values in `ide-fork.md`. |
+| G-1 | Web build works at the pinned tag | **Pending (build wired)** — pinned tag `1.139.1` (`ide/CODE_OSS_TAG`, Node 24.18.0 per its `.nvmrc`). Web target task is `npm run gulp vscode-web-min`, output `../vscode-web`. Built on the hosted runner by `pages.yml` via `ide/build.mjs`. | PASS once the first `pages.yml` IDE build succeeds. |
+| G-2 | Built-in web extension mechanism exists | **PASS (source read at `1.139.1`)** — `build/lib/extensions.ts` packages every `extensions/*` folder whose manifest has `browser`, and `build/next/index.ts` bakes them into the workbench's built-in list. `ide/build.mjs` stages the webpack bundle of `extensions/reprise` there. | Confirmed in the browser after the first deploy. |
+| G-3 | `product.json` fields for rebranding | **PASS** — `nameShort`, `nameLong`, `applicationName`, `dataFolderName`, `reportIssueUrl` overridden by `ide/product.overrides.json`. Code - OSS has no `extensionsGallery`, and the build fails if one is added (PD-21). | Old/new values in `docs/kit/02-specs/ide-fork.md`. |
 | G-4 | Trademark and licence — icons and names | **Pending** — VS Code name and icon are Microsoft trademarks. The web build's favicon, manifest.json, workbench icons must be replaced. VSCodium's approach (replace with generic icons) applies. | Phase 1 team action. |
-| G-5 | GitHub Pages hosting | **Likely PASS** — static web build is standard Pages deployment. The `/ide/` sub-path requires `base` configuration in the workbench entry page. | Phase 5 (T5) implements the workflow. |
+| G-5 | GitHub Pages hosting | **Pending (workflow implemented)** — `pages.yml` builds the IDE into `/ide/` and the dashboard into `/`. The embedder page resolves its base URL at runtime, so no base-path configuration is needed. | Record size and build time from the first run's `ide/build.mjs` output. |
 | G-6 | Cross-origin isolation headers not required, or Pages can set them | **Pending** — Code-OSS web build may need `Cross-Origin-Opener-Policy` and `Cross-Origin-Embedder-Policy` for `SharedArrayBuffer`. If required, Pages cannot set custom headers; apply fallback (service worker or `coi-serviceworker`). | Serve the built `/ide/` and check browser console. |
 | G-7 | Built-in GitHub auth provider works in web build | **Pending** — the `vscode.github-authentication` built-in may not activate in the web build. Default to token entry (PD-23). | Phase 1 check: activate `vscode.authentication.getSession('github', …)` in the extension. |
 | G-8 | Runner release workflow | **Deferred** — T5 scope. | — |

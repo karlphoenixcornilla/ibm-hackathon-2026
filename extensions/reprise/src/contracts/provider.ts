@@ -2,7 +2,7 @@
 // FROZEN after base-v1. Change only via change request (CR).
 // Spec: 02-specs/ai-providers.md, 02-specs/data-contracts.md §Provider stage outputs
 
-import type * as vscode from 'vscode';
+import type * as runtime from './runtime';
 import type { Stage, Platform, SignatureKind } from './enums';
 
 // ── Per-stage output shapes ──────────────────────────────────────────────────
@@ -77,5 +77,5 @@ export interface StageResponse {
 export interface Provider {
   id: string;
   capabilities: { images: boolean; implemented: boolean };
-  run(req: StageRequest, token: vscode.CancellationToken): Promise<StageResponse>;
+  run(req: StageRequest, token: runtime.CancellationToken): Promise<StageResponse>;
 }

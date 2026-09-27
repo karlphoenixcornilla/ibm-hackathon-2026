@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "dashboard-index.schema.json",
+  "title": "Reprise Dashboard Index",
+  "description": "Generated dashboard index — lives at dashboard/index.json.",
+  "type": "object",
+  "required": ["generated_at", "data_source", "repos", "totals", "issues"],
+  "properties": {
+    "generated_at": { "type": "string" },
+    "data_source": { "type": "string", "enum": ["live", "sample"] },
+    "repos": { "type": "array", "items": { "type": "string" } },
+    "totals": {
+      "type": "object",
+      "required": ["issues", "by_state", "by_platform", "median_time_to_verdict_ms", "fixes_verified", "regressions_caught"],
+      "properties": {
+        "issues": { "type": "integer" },
+        "by_state": { "type": "object" },
+        "by_platform": { "type": "object" },
+        "median_time_to_verdict_ms": { "type": "number" },
+        "fixes_verified": { "type": "integer" },
+        "regressions_caught": { "type": "integer" }
+      }
+    },
+    "issues": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["repo", "issue", "title", "platform", "state", "verdict", "rate", "sequence", "stubbed", "updated_at"],
+        "properties": {
+          "repo": { "type": "string" },
+          "issue": { "type": "integer" },
+          "title": { "type": "string" },
+          "platform": { "type": "string" },
+          "state": { "type": "string" },
+          "verdict": { "type": "string" },
+          "rate": { "type": "number" },
+          "sequence": { "type": "string" },
+          "stubbed": { "type": "boolean" },
+          "updated_at": { "type": "string" },
+          "pr": { "type": ["string", "null"] }
+        }
+      }
+    }
+  }
+}
