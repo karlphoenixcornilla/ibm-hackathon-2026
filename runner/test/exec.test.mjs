@@ -168,3 +168,22 @@ describe('runCommand — output_tail capped at 200 lines', () => {
     assert.ok(lines.length <= 200, `output_tail should have ≤200 lines, got ${lines.length}`);
   });
 });
+
+describe('runCommand — child processes and quoting (issue #31)', () => {
+  const run = (command, testPath = 'test.mjs') => runCommand({
+    platform: 'linux', command, shell, cwd: tmpdir(), testPath, timeoutMs: 15000, reportPath: '',
+    reportFormat: 'junit', hostOs: process.platform, device: '', envRemove: [], envKeep: [], onOutput: () => {},
+  });
+
+  it('captures the output of a program the shell starts (not just shell builtins)', async () => {
+    const result = await run('node -e "console.log(21 * 2)"');
+    assert.equal(result.exit_code, 0);
+    assert.ok(result.output_tail.includes('42'), `output_tail: ${JSON.stringify(result.output_tail)}`);
+  });
+
+  it('passes quoted arguments and the quoted {file} through intact', async () => {
+    const result = await run('node -e "console.log(process.argv.slice(1).join(\'|\'))" "a b" {file}', 'dir with space/x.test.js');
+    assert.equal(result.exit_code, 0);
+    assert.ok(result.output_tail.includes('a b|dir with space/x.test.js'), `output_tail: ${JSON.stringify(result.output_tail)}`);
+  });
+});

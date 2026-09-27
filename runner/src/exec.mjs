@@ -98,8 +98,13 @@ export async function runCommand(opts) {
       cwd,
       env,
       stdio: ['ignore', 'pipe', 'pipe'],
-      // On Windows, spawn a process group so we can kill the tree.
-      ...(osPlatform === 'win32' ? { detached: true } : {}),
+      // POSIX: a new process group, so killTree can signal -pid (the whole tree).
+      // Not on Windows: a detached child gets its own console and the output of
+      // programs it starts never reaches our pipes; taskkill /T kills the tree anyway.
+      detached: osPlatform !== 'win32',
+      // cmd.exe: pass `/d /s /c "<command>"` verbatim (see shellInvocation) so quotes in
+      // the command survive; Node's default argument quoting would escape them as \".
+      windowsVerbatimArguments: shell.toLowerCase() === 'cmd',
     });
 
     /** @param {Buffer} chunk */
@@ -186,7 +191,8 @@ function quoteForShell(p, shell) {
 function shellInvocation(shell, command) {
   const sh = shell.toLowerCase();
   if (sh === 'cmd') {
-    return ['cmd.exe', ['/c', command]];
+    // /s strips exactly the outer quotes and runs the rest as typed; /d skips AutoRun.
+    return ['cmd.exe', ['/d', '/s', '/c', `"${command}"`]];
   }
   if (sh === 'pwsh' || sh === 'powershell') {
     return [shell, ['-NoProfile', '-NonInteractive', '-Command', command]];
