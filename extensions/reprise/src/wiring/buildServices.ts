@@ -94,6 +94,10 @@ function buildRealServices(host: HostServices): Services {
   svc.github = createGitHub({
     auth: svc.auth,
     config: svc.config,
+    repositoryRemote: host.workspace.getRepository ? async () => {
+      const result = await host.workspace.getRepository?.();
+      return result?.ok ? result.value?.remote ?? null : null;
+    } : undefined,
     workspaceReader: async (path: string) => {
       const r = await svc.workspace.readFile(path);
       if (!r.ok) { return null; }

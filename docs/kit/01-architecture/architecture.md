@@ -6,6 +6,8 @@ The core remains in `extensions/reprise` to preserve import paths for parallel p
 
 Workspace adapters use relative file paths and string resource identifiers. They own filesystem confinement and approval enforcement. Authentication adapters own credential acquisition and storage. Views adapters own user interaction. Existing record schemas and pipeline semantics remain unchanged.
 
+Pivot #31 adds a runner-backed workspace and `importLocalRepository()` / `runLocalOverlay()` integration. Local repository selection, file access, approved writes, and temporary worktree execution remain behind the runner contract. See [local repository integration](../../local-repository.md).
+
 The dashboard accepts index and record loaders from its host. Bundled JSON records are sample preview data, not a required publication/deployment mechanism. The runner requires explicit allowed origins and retains loopback binding, pairing and session authentication.
 
 No replacement server, editor, credential store or deployment platform is prescribed by this pivot. Subsequent workstreams integrate the host services and data sources.

@@ -6,6 +6,7 @@ import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
 import { writeFileSync, mkdirSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { startServer } from '../src/server.mjs';
@@ -77,6 +78,9 @@ before(async () => {
     'verify:',
     '  min_runs: 1',
     '  max_runs: 200',
+    'edit_scope:',
+    '  test: [tests/**]',
+    '  fix: [src/**]',
     'platforms:',
     '  linux:',
     `    shell: ${process.platform === 'win32' ? 'cmd' : 'bash'}`,
@@ -90,6 +94,10 @@ before(async () => {
     '    run_timeout_seconds: 10',
   ].join('\n');
   writeFileSync(join(tempRoot, '.reprise.yml'), yml, 'utf8');
+
+  execFileSync('git', ['init', '-q', tempRoot]);
+  execFileSync('git', ['-C', tempRoot, 'add', '.']);
+  execFileSync('git', ['-C', tempRoot, '-c', 'user.name=Test', '-c', 'user.email=test@example.test', 'commit', '-qm', 'fixture']);
 
   // We need to intercept the pairing code printed to console
   const origLog = console.log;
@@ -170,6 +178,12 @@ describe('POST /pair', () => {
 // ── Auth check (routes that require Bearer token) ─────────────────────────────
 
 describe('Auth check', () => {
+  it('requires authentication for local file reads', async () => {
+    assert.equal((await get(TEST_PORT, '/file?path=.reprise.yml', null)).status, 401);
+  });
+  it('rejects an untrusted origin for local file reads', async () => {
+    assert.equal((await request({ port: TEST_PORT, path: '/file?path=.reprise.yml', origin: 'https://untrusted.example', token: sessionToken })).status, 403);
+  });
   it('returns 401 for POST /approve without token', async () => {
     const res = await post(TEST_PORT, '/approve', { path: 'a.mjs', sha256: 'abc' }, null);
     assert.equal(res.status, 401);
@@ -198,7 +212,7 @@ describe('POST /approve', () => {
   it('returns 200 for a valid approval', async () => {
     const res = await post(TEST_PORT, '/approve', {
       path: 'tests/a.test.mjs',
-      sha256: 'abc123',
+      sha256: 'a'.repeat(64),
     }, sessionToken);
     assert.equal(res.status, 200);
     assert.deepEqual(res.body, { ok: true });
@@ -295,7 +309,10 @@ describe('Pairing lockout', () => {
     // Use a separate server instance to avoid polluting session
     const root2 = join(tmpdir(), `reprise-lock-test-${Date.now()}`);
     mkdirSync(root2, { recursive: true });
-    writeFileSync(join(root2, '.reprise.yml'), 'version: 3\n', 'utf8');
+    writeFileSync(join(root2, '.reprise.yml'), 'version: 3\nplatforms:\n  linux:\n    lint: echo ok\n', 'utf8');
+    execFileSync('git', ['init', '-q', root2]);
+    execFileSync('git', ['-C', root2, 'add', '.']);
+    execFileSync('git', ['-C', root2, '-c', 'user.name=Test', '-c', 'user.email=test@example.test', 'commit', '-qm', 'fixture']);
 
     let capturedCode = '';
     const orig = console.log;

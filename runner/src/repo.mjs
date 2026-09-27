@@ -1,77 +1,25 @@
 // src/repo.mjs — worktree management for base/head refs (PD-24)
 // Spec: 02-specs/local-runner.md §Checks on POST /runs (ref handling)
 //
-// Worktrees are created under ~/.reprise-runner/worktrees/<repo>/<sha>
-// and removed when the verification finishes or the runner exits.
+// Worktrees use unique temporary directories and only local commit objects.
+// They are removed when verification finishes or the runner exits.
 
-import { mkdirSync, rmSync, existsSync } from 'node:fs';
+import { mkdtempSync, rmSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { homedir } from 'node:os';
-import { execSync, execFileSync } from 'node:child_process';
+import { tmpdir } from 'node:os';
+import { execFileSync } from 'node:child_process';
 
-/**
- * Base cache directory for runner worktrees.
- * @returns {string}
- */
-function cacheBase() {
-  return join(homedir(), '.reprise-runner', 'worktrees');
-}
-
-/**
- * Derive a short repo name from the remote URL or root path.
- * @param {string} root
- * @param {string} remote
- * @returns {string}
- */
-function repoName(root, remote) {
-  if (remote) {
-    const m = remote.match(/\/([^/]+?)(?:\.git)?$/);
-    if (m) return m[1];
-  }
-  return root.split(/[/\\]/).pop() ?? 'repo';
-}
-
-/**
- * Get the path of the worktree for a given SHA.
- * Creates it if it doesn't exist.
- *
- * @param {string} root       Absolute path to the main clone (--root)
- * @param {string} remote     Repository remote URL (for naming)
- * @param {string} sha        Full or abbreviated commit SHA
- * @returns {Promise<string>} Absolute path to the worktree
- */
-export async function getOrCreateWorktree(root, remote, sha) {
-  const name = repoName(root, remote);
-  const worktreeDir = join(cacheBase(), name, sha);
-
-  if (existsSync(worktreeDir)) {
-    return worktreeDir;
-  }
-
-  mkdirSync(worktreeDir, { recursive: true });
-
+/** Each request gets an isolated local worktree; no fetch or checkout in the source clone. */
+export async function getOrCreateWorktree(root, _remote, sha) {
+  if (!/^[a-f0-9]{7,64}$/i.test(sha)) throw new Error('Worktree ref must be a commit SHA');
+  execFileSync('git', ['cat-file', '-e', `${sha}^{commit}`], { cwd: root, stdio: 'pipe' });
+  const worktreeDir = mkdtempSync(join(tmpdir(), 'reprise-worktree-'));
   try {
-    // Fetch the ref in case it isn't present locally
-    try {
-      execSync(`git fetch --quiet origin ${sha}`, {
-        cwd: root,
-        stdio: ['pipe', 'pipe', 'pipe'],
-        encoding: 'utf8',
-      });
-    } catch {
-      // May already be present; proceed
-    }
-
-    execFileSync('git', ['worktree', 'add', '--detach', worktreeDir, sha], {
-      cwd: root,
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
-
+    execFileSync('git', ['worktree', 'add', '--detach', worktreeDir, sha], { cwd: root, stdio: 'pipe' });
     return worktreeDir;
-  } catch (err) {
-    // Clean up failed directory
-    try { rmSync(worktreeDir, { recursive: true, force: true }); } catch { /**/ }
-    throw new Error(`Failed to create worktree for ${sha}: ${err instanceof Error ? err.message : String(err)}`);
+  } catch (error) {
+    rmSync(worktreeDir, { recursive: true, force: true });
+    throw new Error(`Failed to create local worktree: ${error.message}`);
   }
 }
 

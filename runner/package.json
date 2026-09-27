@@ -1,7 +1,7 @@
 {
   "name": "reprise-runner",
   "version": "0.1.0",
-  "description": "Reprise Runner — local test execution server for the Reprise IDE.",
+  "description": "Reprise Runner — local test execution server for Reprise.",
   "type": "module",
   "main": "reprise-runner.mjs",
   "engines": {
@@ -9,10 +9,12 @@
   },
   "scripts": {
     "start": "node reprise-runner.mjs",
-    "test": "node --test \"test/**/*.test.mjs\"",
+    "test": "node --test test/*.test.mjs",
     "build": "node build.mjs",
     "lint": "node --check src/**/*.mjs reprise-runner.mjs"
   },
   "license": "MIT",
-  "devDependencies": {}
+  "devDependencies": {
+    "esbuild": "0.28.2"
+  }
 }

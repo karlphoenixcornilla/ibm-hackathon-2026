@@ -13,6 +13,7 @@ import type {
   RunsRequest,
   RunsResponse,
   RunnerEvent,
+  FileResponse, WriteFileRequest, OverlaysRequest, OverlaysResponse,
 } from '../contracts/runner-api';
 import type { Result } from '../util/result';
 import { Result as R } from '../util/result';
@@ -49,6 +50,7 @@ class RunnerClient implements RunnerClientService {
   // ── RunnerClientService ────────────────────────────────────────────────────
 
   async pair(code: string): Promise<Result<PairResponse, string>> {
+    await this.disconnect();
     // Probe 47410–47419 in order; use the configured port as the start if set.
     // Fix for issue #19: was hardcoded to 47410 and never probed fallback ports.
     const startPort = this.startPort;
@@ -76,7 +78,8 @@ class RunnerClient implements RunnerClientService {
         this.emitter.fire({ paired: true });
 
         // Same-repository check (spec §Same repository check)
-        await this.checkSameRepository(pairResp);
+        const sameRepo = await this.checkSameRepository(pairResp);
+        if (!sameRepo) return R.err('Runner repository does not match the selected repository');
 
         // Start heartbeat
         this.startHeartbeat();
@@ -90,7 +93,10 @@ class RunnerClient implements RunnerClientService {
         res.error.includes('ECONNREFUSED') ||
         res.error.includes('fetch') ||
         res.error.includes('Failed to fetch') ||
-        res.error.includes('network');
+        res.error.includes('network') ||
+        res.error.includes('timeout') ||
+        res.error.includes('HTTP 404') ||
+        res.error.includes('HTTP 405');
       if (!isConnectionRefused) {
         // Runner answered but refused — propagate that error immediately.
         return R.err(res.error);
@@ -120,10 +126,20 @@ class RunnerClient implements RunnerClientService {
     return this._paired;
   }
 
+  async readFile(path: string): Promise<Result<FileResponse, string>> {
+    return this.fetchRunner<FileResponse>(`/file?path=${encodeURIComponent(path)}`, { method: 'GET' });
+  }
+  async writeFile(request: WriteFileRequest): Promise<Result<ApproveResponse, string>> {
+    return this.fetchRunner<ApproveResponse>('/file', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(request) });
+  }
+  async createOverlay(request: OverlaysRequest): Promise<Result<OverlaysResponse, string>> {
+    return this.fetchRunner<OverlaysResponse>('/overlays', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(request) });
+  }
+
   // ── Internal methods ───────────────────────────────────────────────────────
 
   /**
-   * POST /approve after the IDE writes and approves a file.
+   * Register the exact content approved by the host.
    */
   async approve(path: string, sha256: string): Promise<Result<ApproveResponse, string>> {
     return this.fetchRunner<ApproveResponse>('/approve', {
@@ -180,6 +196,7 @@ class RunnerClient implements RunnerClientService {
         const decoder = new TextDecoder();
         let buffer = '';
 
+        let terminal = false;
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
@@ -192,11 +209,13 @@ class RunnerClient implements RunnerClientService {
             if (line.startsWith('data: ')) {
               try {
                 const event = JSON.parse(line.slice(6)) as RunnerEvent;
+                if (event.type === 'done' || event.type === 'error') terminal = true;
                 onEvent(event);
               } catch { /* malformed */ }
             }
           }
         }
+        if (!terminal && !controller.signal.aborted) onEvent({ type: 'error', message: 'Runner event stream ended before completion' });
       } catch (err) {
         if ((err as Error).name !== 'AbortError') {
           onEvent({ type: 'error', message: (err as Error).message });
@@ -245,13 +264,13 @@ class RunnerClient implements RunnerClientService {
 
   // ── Same-repository check (spec §Same repository check) ───────────────────
 
-  private async checkSameRepository(pairResp: PairResponse): Promise<void> {
+  private async checkSameRepository(pairResp: PairResponse): Promise<boolean> {
     const workspaceRemote = await this.detectWorkspaceRemote();
     const workspaceHead = await this.detectWorkspaceHead();
 
     if (workspaceRemote && pairResp.remote) {
       const normalise = (url: string) =>
-        url.replace(/\.git$/, '').replace(/\/$/, '').toLowerCase();
+        url.replace(/^git@([^:]+):/, 'https://$1/').replace(/\.git\/?$/, '').replace(/\/$/, '').toLowerCase();
       if (normalise(pairResp.remote) !== normalise(workspaceRemote)) {
         // Remotes differ → refuse
         await this.disconnect();
@@ -259,7 +278,7 @@ class RunnerClient implements RunnerClientService {
           `Runner is pointed at a different repository (${pairResp.remote}). ` +
             'Pairing refused. Start the runner in the same repository clone.'
         );
-        return;
+        return false;
       }
     }
 
@@ -272,6 +291,7 @@ class RunnerClient implements RunnerClientService {
     }
 
     this.services.views.setStatusBar('Reprise Runner: connected');
+    return true;
   }
 
   private async detectWorkspaceRemote(): Promise<string | null> {
@@ -349,6 +369,7 @@ class RunnerClient implements RunnerClientService {
         method,
         headers,
         body,
+        signal: AbortSignal.timeout(5000),
       });
 
       if (!response.ok) {

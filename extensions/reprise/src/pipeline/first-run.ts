@@ -94,14 +94,15 @@ export const firstRunStage: Stage = {
           if (resp.files.length > 0) {
             for (const f of resp.files) {
               const bytes = new TextEncoder().encode(f.content);
-              await services.workspace.writeFile(f.path, bytes);
+              const written = await services.workspace.writeFile(f.path, bytes);
+              if (!written.ok) throw new Error(written.error);
               const sha256 = await services.workspace.sha256(bytes);
               services.security.recordApproval(f.path, sha256);
               // Fix #16: forward approval to the runner so POST /runs doesn't get 409
               if (services.runnerClient.isPaired()) {
-                (services.runnerClient as unknown as { approve(p: string, s: string): Promise<unknown> })
-                  .approve(f.path, sha256)
-                  .catch(() => { /* runner may not be paired; ignore */ });
+                if (!services.runnerClient.approve) throw new Error('Runner does not support file approval');
+                const approval = await services.runnerClient.approve(f.path, sha256);
+                if (!approval.ok) throw new Error(`Runner approval failed: ${approval.error}`);
               }
               repro.test_sha256 = sha256;
             }

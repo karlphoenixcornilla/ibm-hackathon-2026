@@ -19,3 +19,5 @@ Thumbs.db
 
 # NPM lockfiles (committed per project subfolder)
 package-lock.json
+
+!runner/package-lock.json

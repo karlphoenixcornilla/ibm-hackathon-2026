@@ -48,6 +48,8 @@ export class FakeRunnerClient implements RunnerClientService {
     });
   }
 
+  async approve(_path: string, _sha256: string): Promise<Result<{ ok: boolean }, string>> { return R.ok({ ok: true }); }
+
   isPaired(): boolean {
     return this.paired;
   }

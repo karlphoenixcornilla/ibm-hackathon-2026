@@ -5,7 +5,7 @@
  * Uses crypto.subtle.digest which is available in secure contexts and web workers.
  */
 export async function sha256(bytes: Uint8Array): Promise<string> {
-  const buffer = await crypto.subtle.digest('SHA-256', bytes.buffer as ArrayBuffer);
+  const buffer = await crypto.subtle.digest('SHA-256', new Uint8Array(bytes).buffer);
   return Array.from(new Uint8Array(buffer))
     .map((b) => b.toString(16).padStart(2, '0'))
     .join('');
