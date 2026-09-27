@@ -68,7 +68,6 @@ export class Run {
     return new Promise((resolve) => {
       const wake = () => { clearTimeout(timer); resolve(true); };
       const timer = setTimeout(() => { this.subscriberWaiters.delete(wake); resolve(false); }, timeoutMs);
-      timer.unref();
       this.subscriberWaiters.add(wake);
     });
   }
@@ -104,7 +103,6 @@ export class Run {
           reject(new Error(`Local runner request timed out after ${Math.round(timeoutMs / 1000)}s.`));
         }
       }, timeoutMs);
-      timer.unref();
       const cancelSub = token?.onCancellationRequested(() => {
         const p = this.pending.get(reqId);
         if (p) {
