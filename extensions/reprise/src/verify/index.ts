@@ -240,9 +240,16 @@ class VerifyServiceImpl implements VerifyService {
       this.svc.views.setStatusBar(`Reprise: verifying fix #${issue} — regression check…`);
       let baseResults: RunResult[] = [];
       let headResults: RunResult[] = [];
+
+      // Resolve base SHA: use the iteration's stored base_sha (the HEAD at fix-proposal
+      // time), which is a real commit SHA. Fall back to repro.branch only as a last resort
+      // so the runner can perform `git worktree add --detach <sha>`.
+      const lastIter = record.fix.iterations[record.fix.iterations.length - 1];
+      const baseSha = lastIter?.base_sha || repro.branch;
+
       try {
         baseResults = await executor.run(
-          { platform, mode: 'all', test_path: '', runs: 1, ref: { base: repro.branch } },
+          { platform, mode: 'all', test_path: '', runs: 1, ref: { base: baseSha } },
           cancelToken,
           () => {},
         );

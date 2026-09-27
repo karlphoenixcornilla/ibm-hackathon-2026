@@ -337,6 +337,130 @@ export function createGitHub(services: {
     return Result.ok(undefined);
   }
 
+  // ── commitFixBranch ───────────────────────────────────────────────────────
+
+  /**
+   * Create (or reset) a `reprise/fix-<n>` branch at `baseSha` and commit
+   * all `files` in a single Git Data API round-trip.
+   *
+   * Files are scoped to `fixScope` (edit_scope.fix) and blocked by
+   * `neverScope` (edit_scope.never) before upload — any out-of-scope path
+   * returns an error without touching GitHub.
+   *
+   * Returns `{ branchName, headSha }` on success.
+   */
+  async function commitFixBranch(opts: {
+    repo: string;
+    branchName: string;
+    baseSha: string;
+    files: Array<{ path: string; content: string }>;
+    message: string;
+    fixScope: string[];
+    neverScope: string[];
+  }): Promise<Result<{ branchName: string; headSha: string }, string>> {
+    const { repo, branchName, baseSha, files, message, fixScope, neverScope } = opts;
+
+    // Scope guard
+    for (const f of files) {
+      if (neverScope.length > 0 && matchesScope(f.path, neverScope)) {
+        return Result.err(`File "${f.path}" is in edit_scope.never — cannot commit.`);
+      }
+      if (fixScope.length > 0 && !matchesScope(f.path, fixScope)) {
+        return Result.err(`File "${f.path}" is outside edit_scope.fix — cannot commit.`);
+      }
+    }
+
+    // 1. Create blobs in parallel
+    const blobShas: string[] = [];
+    for (const f of files) {
+      const bytes = new TextEncoder().encode(f.content);
+      const b64 = btoa(String.fromCharCode(...bytes));
+      const blobR = await ghFetch<{ sha: string }>(
+        `${API}/repos/${repo}/git/blobs`,
+        { method: 'POST', token: tok(), body: { content: b64, encoding: 'base64' } }
+      );
+      if (!blobR.ok) { return Result.err(`Blob creation failed for ${f.path}: ${blobR.error}`); }
+      blobShas.push(blobR.data!.sha);
+    }
+
+    // 2. Get base tree SHA from base commit
+    const baseCommitR = await ghFetch<{ tree: { sha: string } }>(
+      `${API}/repos/${repo}/git/commits/${baseSha}`,
+      { token: tok() }
+    );
+    if (!baseCommitR.ok) { return Result.err(`Could not read base commit ${baseSha}: ${baseCommitR.error}`); }
+
+    // 3. Create tree with all files
+    const treeEntries = files.map((f, i) => ({
+      path: f.path,
+      mode: '100644' as const,
+      type: 'blob' as const,
+      sha: blobShas[i],
+    }));
+    const treeR = await ghFetch<{ sha: string }>(
+      `${API}/repos/${repo}/git/trees`,
+      {
+        method: 'POST',
+        token: tok(),
+        body: { base_tree: baseCommitR.data!.tree.sha, tree: treeEntries },
+      }
+    );
+    if (!treeR.ok) { return Result.err(`Tree creation failed: ${treeR.error}`); }
+
+    // 4. Create commit
+    const commitR = await ghFetch<{ sha: string }>(
+      `${API}/repos/${repo}/git/commits`,
+      {
+        method: 'POST',
+        token: tok(),
+        body: { message, tree: treeR.data!.sha, parents: [baseSha] },
+      }
+    );
+    if (!commitR.ok) { return Result.err(`Commit creation failed: ${commitR.error}`); }
+    const headSha = commitR.data!.sha;
+
+    // 5. Create or force-update the branch ref
+    const refPath = `refs/heads/${branchName}`;
+    const checkR = await ghFetch<{ object: { sha: string } }>(
+      `${API}/repos/${repo}/git/refs/heads/${encodeURIComponent(branchName)}`,
+      { token: tok() }
+    );
+    if (checkR.ok) {
+      // Branch exists — force update
+      const patchR = await ghFetch(
+        `${API}/repos/${repo}/git/refs/heads/${encodeURIComponent(branchName)}`,
+        { method: 'PATCH', token: tok(), body: { sha: headSha, force: true } }
+      );
+      if (!patchR.ok) { return Result.err(`Ref update failed: ${patchR.error}`); }
+    } else {
+      // Create new branch
+      const createR = await ghFetch(
+        `${API}/repos/${repo}/git/refs`,
+        { method: 'POST', token: tok(), body: { ref: refPath, sha: headSha } }
+      );
+      if (!createR.ok) { return Result.err(`Ref creation failed: ${createR.error}`); }
+    }
+
+    return Result.ok({ branchName, headSha });
+  }
+
+  // ── matchesScope (same logic as fix/index.ts, co-located) ────────────────
+
+  function matchesScope(filePath: string, patterns: string[]): boolean {
+    for (const pat of patterns) {
+      if (pat.endsWith('/**') || pat.endsWith('/*')) {
+        const prefix = pat.replace(/\/\*+$/, '/');
+        if (filePath.startsWith(prefix)) { return true; }
+      } else if (pat.startsWith('*.')) {
+        const ext = pat.slice(1);
+        if (filePath.endsWith(ext)) { return true; }
+      } else {
+        if (filePath === pat || filePath.startsWith(pat + '/')) { return true; }
+      }
+    }
+    return false;
+  }
+
   // ── createOrUpdatePr ──────────────────────────────────────────────────────
 
   async function createOrUpdatePr(
@@ -372,6 +496,21 @@ export function createGitHub(services: {
     );
     if (!createR.ok) { return Result.err(createR.error!); }
     return Result.ok({ number: createR.data!.number, html_url: createR.data!.html_url });
+  }
+
+  // ── createIssueComment ────────────────────────────────────────────────────
+
+  async function createIssueComment(
+    repo: string,
+    issue: number,
+    body: string
+  ): Promise<Result<void, string>> {
+    const r = await ghFetch(
+      `${API}/repos/${repo}/issues/${issue}/comments`,
+      { method: 'POST', token: tok(), body: { body } }
+    );
+    if (!r.ok) { return Result.err(r.error!); }
+    return Result.ok(undefined);
   }
 
   // ── dispatchWorkflow ──────────────────────────────────────────────────────
@@ -433,7 +572,9 @@ export function createGitHub(services: {
     listIssues,
     readRecord,
     writeRecord,
+    commitFixBranch,
     createOrUpdatePr,
+    createIssueComment,
     dispatchWorkflow,
     downloadArtifact,
   };

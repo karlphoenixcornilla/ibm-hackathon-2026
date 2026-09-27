@@ -120,8 +120,24 @@ export interface GitHubService {
   readRecord(repo: string, issue: number): Promise<Result<IssueRecord | null, string>>;
   /** Write (create or update) an issue record on the reprise-data branch. */
   writeRecord(repo: string, issue: number, record: IssueRecord): Promise<Result<void, string>>;
+  /**
+   * Create (or force-reset) a fix branch at `baseSha` and commit all `files`
+   * in a single Git Data API round-trip. Enforces edit_scope before upload.
+   * Returns `{ branchName, headSha }` on success.
+   */
+  commitFixBranch(opts: {
+    repo: string;
+    branchName: string;
+    baseSha: string;
+    files: Array<{ path: string; content: string }>;
+    message: string;
+    fixScope: string[];
+    neverScope: string[];
+  }): Promise<Result<{ branchName: string; headSha: string }, string>>;
   /** Create or update a PR for a fix branch. */
   createOrUpdatePr(repo: string, branch: string, base: string, title: string, body: string, draft: boolean): Promise<Result<{ number: number; html_url: string }, string>>;
+  /** Post a comment on a GitHub issue. */
+  createIssueComment(repo: string, issue: number, body: string): Promise<Result<void, string>>;
   /** Dispatch reprise-run.yml with the given inputs. */
   dispatchWorkflow(repo: string, inputs: Record<string, string | number>): Promise<Result<{ runId: number }, string>>;
   /** Download a workflow artifact by URL and return unpacked JSON. */

@@ -8,6 +8,7 @@ import type { IssueRecord, Candidate, FixIteration } from '../contracts/records'
 import type { FixOutput } from '../contracts/provider';
 import type { Result } from '../util/result';
 import { Result as R } from '../util/result';
+import { resolveHeadSha } from '../util/git-helpers';
 
 /** Minimal non-cancellable token for use when no real token is provided. */
 function neverCancelled(): runtime.CancellationToken {
@@ -169,6 +170,10 @@ class FixServiceImpl implements FixService {
       });
     }
 
+    // Resolve the current HEAD SHA to use as base for the fix branch.
+    // This is the real commit SHA the runner will use for regression comparison.
+    const baseSha = await resolveWorkspaceHeadSha(this.svc);
+
     const n = record.fix.iterations.length + 1;
     const iteration: FixIteration = {
       n,
@@ -176,7 +181,7 @@ class FixServiceImpl implements FixService {
       pr: null,
       pr_draft: config.fix.draft_pr ?? true,
       branch: `reprise/fix-${n}`,
-      base_sha: '',
+      base_sha: baseSha,
       head_sha: '',
       summary: candidates.find((c) => c.status === 'survived')?.summary ?? 'Fix candidates proposed',
       dropped_files: [],
@@ -356,40 +361,78 @@ class FixServiceImpl implements FixService {
     const selected = lastIter.candidates.find((c) => c.status === 'selected');
     if (!selected) { return R.err('No selected candidate. Run quick checks first.'); }
 
-    // Show diff review per file (services.views.approveFile not in contract — use showInfo).
+    // User confirmation before creating the branch and PR.
     const approved = await this.svc.views.showInfo(
-      `Apply fix candidate ${selected.k}? Files: ${selected.files_changed.join(', ')}`,
-      'Apply',
-      'Reject',
+      `Create PR for fix candidate ${selected.k}? Files: ${selected.files_changed.join(', ')}`,
+      'Create PR',
+      'Cancel',
     );
-    if (approved !== 'Apply') {
-      return R.err('Fix application rejected by user.');
+    if (approved !== 'Create PR') {
+      return R.err('Fix application cancelled by user.');
     }
 
-    // Edit scope security check before writing.
+    const fixScope = config.edit_scope?.fix ?? [];
     const neverScope = config.edit_scope?.never ?? [];
+
+    // Determine base SHA (captured at proposeFixes time, or resolve now as fallback).
+    const baseSha = lastIter.base_sha || await resolveWorkspaceHeadSha(this.svc);
+
+    // Read file contents from workspace to commit.
+    // The provider returns file content in stageResp.files; re-read from workspace
+    // in case the user edited the file locally since proposal.
+    const filesToCommit: Array<{ path: string; content: string }> = [];
     for (const filePath of selected.files_changed) {
-      if (neverScope.length > 0 && matchesScope(filePath, neverScope)) {
-        return R.err(`File ${filePath} is in edit_scope.never — cannot write.`);
+      const bytesResult = await this.svc.workspace.readFile(filePath);
+      if (!bytesResult.ok) {
+        return R.err(`Cannot read ${filePath} for commit: ${bytesResult.error}`);
       }
+      filesToCommit.push({ path: filePath, content: new TextDecoder().decode(bytesResult.value) });
     }
 
-    // Create branch and PR through GitHub service.
+    // Commit the fix to a branch via the Git Data API.
     const branchName = lastIter.branch; // reprise/fix-N
+    const branchResult = await this.svc.github.commitFixBranch({
+      repo,
+      branchName,
+      baseSha,
+      files: filesToCommit,
+      message: `fix(#${issue}): ${selected.summary}`,
+      fixScope,
+      neverScope,
+    });
+    if (!branchResult.ok) { return branchResult; }
+    const headSha = branchResult.value.headSha;
+
+    // Build the PR body with full evidence.
+    const prBody = buildPrBody(record, lastIter, selected);
+
+    // Create or update the PR.
     const prResult = await this.svc.github.createOrUpdatePr(
       repo,
       branchName,
       'main',
       `Fix #${issue}: ${selected.summary}`,
-      buildPrBody(record, lastIter, selected),
+      prBody,
       lastIter.pr_draft,
     );
     if (!prResult.ok) { return prResult; }
 
+    const prUrl = prResult.value.html_url;
+
+    // Optionally post the evidence as a comment on the original issue.
+    if (config.fix.draft_pr !== undefined) {
+      // We post to the issue regardless of draft_pr since it's the differentiator feature.
+      const commentBody = buildIssueComment(record, lastIter, selected, prUrl);
+      await this.svc.github.createIssueComment(repo, issue, commentBody).catch(() => {
+        // Non-fatal: comment failure must not block the PR creation.
+      });
+    }
+
     const updatedIteration: FixIteration = {
       ...lastIter,
-      pr: prResult.value.html_url,
-      head_sha: `sha-candidate-${selected.k}`,
+      pr: prUrl,
+      base_sha: baseSha,
+      head_sha: headSha,
     };
     const updatedIterations = [...record.fix.iterations];
     updatedIterations[updatedIterations.length - 1] = updatedIteration;
@@ -403,7 +446,33 @@ class FixServiceImpl implements FixService {
 
     const saveResult = await this.svc.store.save(updated);
     if (!saveResult.ok) { return saveResult; }
+
+    this.svc.views.showInfo(`PR created: ${prUrl}`, 'Open');
     return R.ok(updated);
+  }
+}
+
+// ── Workspace HEAD SHA resolver ───────────────────────────────────────────────
+
+/** Read the current HEAD SHA from the workspace .git files. Returns '' on failure. */
+async function resolveWorkspaceHeadSha(svc: Pick<Services, 'workspace'>): Promise<string> {
+  try {
+    const headRes = await svc.workspace.readFile('.git/HEAD');
+    if (!headRes.ok) { return ''; }
+    const headText = new TextDecoder().decode(headRes.value);
+
+    const refsReader = async (refPath: string): Promise<string | null> => {
+      const r = await svc.workspace.readFile(`.git/${refPath}`);
+      if (!r.ok) { return null; }
+      return new TextDecoder().decode(r.value);
+    };
+
+    const packedRes = await svc.workspace.readFile('.git/packed-refs');
+    const packedRefs = packedRes.ok ? new TextDecoder().decode(packedRes.value) : '';
+
+    return (await resolveHeadSha(headText, refsReader, packedRefs)) ?? '';
+  } catch {
+    return '';
   }
 }
 
@@ -415,29 +484,146 @@ function buildPrBody(
   selected: Candidate,
 ): string {
   const diag = record.replication?.diagnosis;
+  const repro = record.replication?.repro;
+  const verif = iteration.verification;
+
+  const pct = (v: number) => `${(v * 100).toFixed(1)}%`;
+
   const lines: string[] = [
     `## Fix #${record.issue}: ${selected.summary}`,
     '',
-    diag?.summary ? `**Diagnosis:** ${diag.summary}` : '',
+    diag?.summary ? `> **Diagnosis:** ${diag.summary}` : '',
     '',
     `**Files changed:** ${selected.files_changed.join(', ')}`,
     '',
     `Fixes #${record.issue}`,
-    record.stubbed ? `\n*Proposed by provider \`${record.provider}\` (stub response)*` : '',
+    record.stubbed ? `\n> *Proposed by provider \`${record.provider}\` (stub response)*` : '',
+    '',
+    '---',
+    '',
+    '### 🔬 Reproduction evidence',
+    '',
+  ];
+
+  if (repro) {
+    lines.push(
+      `| Metric | Value |`,
+      `|--------|-------|`,
+      `| Failure rate | **${pct(repro.rate)}** (${repro.failed}/${repro.trials} runs) |`,
+      `| Wilson 95% CI | ${pct(repro.wilson_low)} – ${pct(repro.wilson_high)} |`,
+      `| Verdict | **${record.replication?.verdict ?? '—'}** |`,
+      `| Platform | \`${repro.run_context.platform}\` on \`${repro.run_context.host_os}\` |`,
+      `| Executor | \`${repro.run_context.executor}\` |`,
+      '',
+    );
+    if (repro.signature) {
+      lines.push(`**Signature** (\`${repro.signature.kind}\`): \`${repro.signature.pattern}\``, '');
+    }
+  } else {
+    lines.push('*No replication data recorded.*', '');
+  }
+
+  lines.push('### ✅ Verification', '');
+
+  if (verif && verif.finished_at) {
+    const vr = verif.repro;
+    lines.push(
+      `| Metric | Value |`,
+      `|--------|-------|`,
+      `| Verdict | **${verif.verdict}** |`,
+      `| Repro runs | ${vr.runs} / ${vr.runs_required} required |`,
+      `| Repro failures | ${vr.failed} |`,
+      `| Evidence | \`${vr.evidence}\` |`,
+      `| Regressions blocked | ${verif.regression.blocking.length} |`,
+      `| Tests total | ${verif.regression.tests_total} |`,
+      '',
+    );
+    if (vr.claim) {
+      lines.push(`> ${vr.claim}`, '');
+    }
+    if (verif.regression.blocking.length > 0) {
+      lines.push(
+        '**Blocking regressions:**',
+        ...verif.regression.blocking.map((t) => `- \`${t}\``),
+        '',
+      );
+    }
+  } else {
+    lines.push('*Verification not yet run.*', '');
+  }
+
+  lines.push(
+    '---',
     '',
     '### Candidates',
-    '| # | Status | Files |',
-    '|---|--------|-------|',
+    '| # | Status | Quick check (repro / blocking) | Files |',
+    '|---|--------|-------------------------------|-------|',
     ...iteration.candidates.map(
-      (c) => `| ${c.k} | ${c.status} | ${c.files_changed.join(', ')} |`,
+      (c) => `| ${c.k} | \`${c.status}\` | ${c.quick_check.repro_failed}/${c.quick_check.repro_runs} repro · ${c.quick_check.blocking} blocking | ${c.files_changed.join(', ')} |`,
     ),
     '',
     '### Checklist',
-    `- [x] Reproduced: ${record.replication?.repro?.failed ?? 0} of ${record.replication?.repro?.trials ?? 0} runs failed`,
+    repro
+      ? `- [x] Reproduced: **${pct(repro.rate)}** failure rate (${repro.failed}/${repro.trials} runs)`
+      : '- [ ] Reproduced',
     `- [x] Candidate ${selected.k} of ${iteration.candidates.length} selected`,
-    '- [ ] Verified: 0 failures in required runs',
-    '- [ ] No regressions against base',
-    '- [ ] Self-review: no high-severity findings',
+    verif?.verdict === 'FIX_VERIFIED'
+      ? `- [x] Verified: ${verif.repro.runs} clean runs (${verif.repro.evidence} evidence)`
+      : '- [ ] Verified',
+    verif?.regression.blocking.length === 0 && (verif?.regression.tests_total ?? 0) > 0
+      ? `- [x] No regressions (${verif!.regression.tests_total} tests checked)`
+      : '- [ ] No regressions against base',
+    iteration.review.verdict === 'ok'
+      ? '- [x] Self-review: no high-severity findings'
+      : `- [ ] Self-review: ${iteration.review.findings.filter((f) => f.severity === 'high').length} high-severity finding(s)`,
+  );
+
+  return lines.filter((l) => l !== undefined && l !== null).join('\n');
+}
+
+// ── Issue comment builder ─────────────────────────────────────────────────────
+
+/** Short evidence comment posted to the original GitHub issue after PR creation. */
+function buildIssueComment(
+  record: IssueRecord,
+  iteration: FixIteration,
+  selected: Candidate,
+  prUrl: string,
+): string {
+  const repro = record.replication?.repro;
+  const verif = iteration.verification;
+  const pct = (v: number) => `${(v * 100).toFixed(1)}%`;
+
+  const lines: string[] = [
+    `🤖 **Reprise** has proposed a fix for this issue.`,
+    '',
+    `**PR:** ${prUrl}`,
+    '',
   ];
-  return lines.filter((l) => l !== null).join('\n');
+
+  if (repro) {
+    lines.push(
+      `**Reproduction:** ${pct(repro.rate)} failure rate over ${repro.trials} runs` +
+        ` (Wilson 95% CI: ${pct(repro.wilson_low)}–${pct(repro.wilson_high)}) — verdict: **${record.replication?.verdict ?? '—'}**`,
+      '',
+    );
+  }
+
+  if (verif?.finished_at) {
+    lines.push(
+      `**Verification:** ${verif.verdict}` +
+        ` · ${verif.repro.runs} repro runs · ${verif.regression.blocking.length} regressions blocked`,
+      '',
+    );
+    if (verif.repro.claim) {
+      lines.push(`> ${verif.repro.claim}`, '');
+    }
+  }
+
+  lines.push(
+    `**Files changed:** ${selected.files_changed.join(', ')}`,
+    `**Summary:** ${selected.summary}`,
+  );
+
+  return lines.join('\n');
 }
