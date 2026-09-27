@@ -4,7 +4,7 @@ Requirements: `../00-context/team-answers.md` (R-n). Provisional decisions: `../
 
 ## Overview
 
-Reprise IDE is the rebranded **web build** of Code - OSS (R-2, R-16, ADR-1), served as static files from GitHub Pages and opened in desktop Chrome or Edge (PD-22). It bundles one built-in **web extension**, **Reprise** (PD-1, ADR-2), which runs in the browser's web-worker extension host. The user opens their local repository folder through the workbench's "Open Folder", which uses the File System Access API (gate G-21, `browser-runtime.md`).
+Reprise IDE is the rebranded **web build** of Code - OSS (R-2, R-16, ADR-1), served as static files from GitHub Pages and opened in a Chromium-based desktop browser (PD-22). It bundles one built-in **web extension**, **Reprise** (PD-1, ADR-2), which runs in the browser's web-worker extension host. The user opens their local repository folder through the workbench's "Open Folder", which uses the File System Access API (gate G-21, `browser-runtime.md`).
 
 The extension talks to GitHub over the REST API with the user's token (R-3, PD-19, PD-23), runs a replication pipeline when the user acknowledges a report (R-4), gets reasoning from a pluggable provider that is a stub today (R-5, ADR-4), and runs tests through executors (R-7, ADR-5):
 

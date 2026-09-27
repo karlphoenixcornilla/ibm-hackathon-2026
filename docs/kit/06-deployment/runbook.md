@@ -8,7 +8,7 @@ Close demo issues and PRs, delete branches `reprise/*`, reset `reprise-data` to 
 
 | Symptom | Likely cause | Action |
 | --- | --- | --- |
-| "Reprise IDE needs a browser that can open folders" | Not Chrome or Edge on desktop, or the API is turned off | Open the URL in Chrome or Edge; check policies listed from G-28 |
+| "Reprise IDE needs a Chromium-based desktop browser that can open folders" | Not a Chromium-based desktop browser (Firefox, Safari, mobile), or the browser or a policy turns the File System Access API off | Open the URL in a Chromium-based desktop browser such as Chrome or Edge, or turn the API on; check policies listed from G-28 |
 | "Allow access to <folder> to continue" after reload | The browser asks again for folder permission after a reload | Click the button and allow |
 | Bug Reports view empty | No folder open, not signed in, wrong repository linked, or label filter | Follow the first-run checklist; "Link Repository"; `.reprise.yml` `issues.labels` |
 | "Runner: not connected" | Runner not started, wrong port, pairing code expired | Start `node reprise-runner.mjs --root <clone>`; "Connect Runner" with the new code |

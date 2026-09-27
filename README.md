@@ -15,7 +15,7 @@ Implementation plan: see [`docs/implementation/plan.md`](docs/implementation/pla
 
 | Requirement | Version | Notes |
 |---|---|---|
-| **Google Chrome** or **Microsoft Edge** | 86 or later | Required for the File System Access API (`showDirectoryPicker`). Firefox and Safari are not supported. |
+| Any **Chromium-based desktop browser** (Chrome, Edge, Brave, Opera, Vivaldi, Arc, …) | Chromium 86 or later | Required for the File System Access API (`showDirectoryPicker`). If your browser turns the API off, enable it or use Chrome or Edge. Firefox, Safari and mobile browsers are not supported. |
 
 ### Running the Reprise Runner (local test execution)
 
@@ -60,7 +60,7 @@ npm test            # Unit tests (node --test)
 git clone --depth 1 --branch "$(cat ide/CODE_OSS_TAG)" https://github.com/microsoft/vscode.git ../vscode
 # Use the Node.js version in ../vscode/.nvmrc
 node ide/build.mjs --vscode ../vscode --out _ide
-python -m http.server 8000 --bind 127.0.0.1 --directory _ide   # then open http://localhost:8000/ in Chrome or Edge
+python -m http.server 8000 --bind 127.0.0.1 --directory _ide   # then open http://localhost:8000/ in a Chromium-based browser
 ```
 
 See `docs/kit/02-specs/ide-fork.md` for what the build changes.
