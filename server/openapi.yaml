@@ -1,0 +1,240 @@
+openapi: 3.1.0
+info:
+  title: Reprise app API
+  version: 0.1.0
+  description: |
+    Backend API for the Reprise Review UI (issue #30).
+    Auth: POST /api/session with a GitHub token sets the httpOnly `reprise_sid` cookie.
+    Long-running operations return 202 { runId }; follow GET /api/runs/{id}/events (SSE)
+    or poll GET /api/runs/{id}. TypeScript types: server/src/api/types.ts.
+servers:
+  - url: /
+components:
+  securitySchemes:
+    session:
+      type: apiKey
+      in: cookie
+      name: reprise_sid
+  parameters:
+    owner: { name: owner, in: path, required: true, schema: { type: string, pattern: '^[A-Za-z0-9_.-]+$' } }
+    repo: { name: repo, in: path, required: true, schema: { type: string, pattern: '^[A-Za-z0-9_.-]+$' } }
+    n: { name: n, in: path, required: true, schema: { type: integer, minimum: 1 } }
+    runId: { name: id, in: path, required: true, schema: { type: string } }
+  responses:
+    Error:
+      description: Error
+      content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
+  schemas:
+    ApiError:
+      type: object
+      required: [error]
+      properties: { error: { type: string } }
+    SessionInfo:
+      type: object
+      required: [login]
+      properties: { login: { type: string } }
+    Health:
+      type: object
+      required: [ok, mode]
+      properties:
+        ok: { const: true }
+        mode: { enum: [real, mock] }
+    GitHubIssue:
+      type: object
+      required: [number, title, html_url, state, labels, created_at, updated_at]
+      properties:
+        number: { type: integer }
+        title: { type: string }
+        html_url: { type: string }
+        state: { enum: [open, closed] }
+        labels: { type: array, items: { type: string } }
+        created_at: { type: string }
+        updated_at: { type: string }
+    IssueRecord:
+      description: Schema-3 issue record (core/src/contracts/records.ts, schemas/issue-record.schema.json).
+      type: object
+      required: [schema, repo, issue, title, url, state, replication, fix, events]
+      properties:
+        schema: { const: 3 }
+        repo: { type: string }
+        issue: { type: integer }
+        title: { type: string }
+        url: { type: string }
+        state: { type: string }
+        replication: { type: object }
+        fix: { type: object }
+        events: { type: array }
+    Location:
+      type: object
+      required: [file, start_line, end_line, reason]
+      properties:
+        file: { type: string }
+        start_line: { type: integer }
+        end_line: { type: integer }
+        reason: { type: string }
+    Proposal:
+      type: object
+      required: [locations, root_cause, fix_direction, confidence, diff, pr_draft]
+      properties:
+        locations: { type: array, items: { $ref: '#/components/schemas/Location' } }
+        root_cause: { type: string }
+        fix_direction: { type: string }
+        confidence: { enum: [high, medium, low] }
+        diff: { type: string, description: Unified diff }
+        pr_draft:
+          type: object
+          required: [title, body]
+          properties: { title: { type: string }, body: { type: string } }
+    RunAccepted:
+      type: object
+      required: [runId]
+      properties: { runId: { type: string } }
+    RunStatus:
+      type: object
+      required: [id, kind, state, repo, issue, started_at, finished_at, record, proposal, error]
+      properties:
+        id: { type: string }
+        kind: { enum: [acknowledge, propose] }
+        state: { enum: [running, succeeded, failed] }
+        repo: { type: string }
+        issue: { type: integer }
+        started_at: { type: string }
+        finished_at: { type: [string, 'null'] }
+        record: { oneOf: [{ $ref: '#/components/schemas/IssueRecord' }, { type: 'null' }] }
+        proposal: { oneOf: [{ $ref: '#/components/schemas/Proposal' }, { type: 'null' }] }
+        error: { type: [string, 'null'] }
+    CoreEvent:
+      description: CoreEvent from core/src/contracts/services.ts.
+      type: object
+      required: [type]
+      properties:
+        type: { enum: [record.updated, status, info, error] }
+    RunRequest:
+      description: RunRequest from core/src/contracts/execution.ts. Forward it verbatim to the runner's POST /runs.
+      type: object
+      required: [platform, mode, test_path, runs, ref]
+    RunStreamEvent:
+      oneOf:
+        - type: object
+          required: [type, event]
+          properties: { type: { const: core }, event: { $ref: '#/components/schemas/CoreEvent' } }
+        - type: object
+          required: [type, reqId, request]
+          properties: { type: { const: exec.request }, reqId: { type: string }, request: { $ref: '#/components/schemas/RunRequest' } }
+        - type: object
+          required: [type, reqId, line]
+          properties: { type: { const: exec.output }, reqId: { type: string }, line: { type: string } }
+        - type: object
+          required: [type, status]
+          properties: { type: { enum: [run.done, run.failed] }, status: { $ref: '#/components/schemas/RunStatus' } }
+    ExecResult:
+      oneOf:
+        - type: object
+          required: [ok, results]
+          properties: { ok: { const: true }, results: { type: array, items: { type: object } } }
+        - type: object
+          required: [ok, error]
+          properties: { ok: { const: false }, error: { type: string } }
+    PrRequest:
+      type: object
+      required: [diff, title, body, draft]
+      properties:
+        diff: { type: string }
+        title: { type: string, minLength: 1 }
+        body: { type: string }
+        draft: { type: boolean }
+    PrCreated:
+      type: object
+      required: [number, html_url]
+      properties: { number: { type: integer }, html_url: { type: string } }
+security:
+  - session: []
+paths:
+  /api/health:
+    get:
+      security: []
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/Health' } } } }
+  /api/openapi.json:
+    get:
+      security: []
+      responses:
+        '200': { description: This document as JSON }
+  /api/session:
+    post:
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, required: [token], properties: { token: { type: string, minLength: 1 } } }
+      responses:
+        '200': { description: Signed in; sets reprise_sid, content: { application/json: { schema: { $ref: '#/components/schemas/SessionInfo' } } } }
+        '401': { $ref: '#/components/responses/Error' }
+    get:
+      responses:
+        '200': { description: Current session, content: { application/json: { schema: { $ref: '#/components/schemas/SessionInfo' } } } }
+        '401': { $ref: '#/components/responses/Error' }
+    delete:
+      responses:
+        '204': { description: Signed out; token dropped from memory }
+  /api/repos/{owner}/{repo}/issues:
+    parameters: [{ $ref: '#/components/parameters/owner' }, { $ref: '#/components/parameters/repo' }]
+    get:
+      responses:
+        '200': { description: Open issues with the configured labels, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/GitHubIssue' } } } } }
+        '401': { $ref: '#/components/responses/Error' }
+        '502': { $ref: '#/components/responses/Error' }
+  /api/repos/{owner}/{repo}/issues/{n}/record:
+    parameters: [{ $ref: '#/components/parameters/owner' }, { $ref: '#/components/parameters/repo' }, { $ref: '#/components/parameters/n' }]
+    get:
+      responses:
+        '200': { description: Issue record, content: { application/json: { schema: { $ref: '#/components/schemas/IssueRecord' } } } }
+        '404': { $ref: '#/components/responses/Error' }
+  /api/repos/{owner}/{repo}/issues/{n}/acknowledge:
+    parameters: [{ $ref: '#/components/parameters/owner' }, { $ref: '#/components/parameters/repo' }, { $ref: '#/components/parameters/n' }]
+    post:
+      requestBody:
+        content:
+          application/json:
+            schema: { type: object, properties: { trials: { type: object } } }
+      responses:
+        '202': { description: Evidence pipeline started, content: { application/json: { schema: { $ref: '#/components/schemas/RunAccepted' } } } }
+  /api/repos/{owner}/{repo}/issues/{n}/propose:
+    parameters: [{ $ref: '#/components/parameters/owner' }, { $ref: '#/components/parameters/repo' }, { $ref: '#/components/parameters/n' }]
+    post:
+      responses:
+        '202': { description: Agentic proposal started; RunStatus.proposal holds the result, content: { application/json: { schema: { $ref: '#/components/schemas/RunAccepted' } } } }
+  /api/repos/{owner}/{repo}/issues/{n}/pr:
+    parameters: [{ $ref: '#/components/parameters/owner' }, { $ref: '#/components/parameters/repo' }, { $ref: '#/components/parameters/n' }]
+    post:
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/PrRequest' } } }
+      responses:
+        '201': { description: PR created, content: { application/json: { schema: { $ref: '#/components/schemas/PrCreated' } } } }
+        '501': { $ref: '#/components/responses/Error' }
+        '502': { $ref: '#/components/responses/Error' }
+  /api/runs/{id}:
+    parameters: [{ $ref: '#/components/parameters/runId' }]
+    get:
+      responses:
+        '200': { description: Run status, content: { application/json: { schema: { $ref: '#/components/schemas/RunStatus' } } } }
+        '404': { $ref: '#/components/responses/Error' }
+  /api/runs/{id}/events:
+    parameters: [{ $ref: '#/components/parameters/runId' }]
+    get:
+      description: Server-sent events. Replays buffered events, then streams live ones. Closes after run.done or run.failed.
+      responses:
+        '200': { description: 'text/event-stream; each data line is a RunStreamEvent', content: { text/event-stream: { schema: { $ref: '#/components/schemas/RunStreamEvent' } } } }
+        '404': { $ref: '#/components/responses/Error' }
+  /api/runs/{id}/exec/{reqId}:
+    parameters: [{ $ref: '#/components/parameters/runId' }, { name: reqId, in: path, required: true, schema: { type: string } }]
+    post:
+      description: The browser posts the local runner's result for an exec.request.
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/ExecResult' } } }
+      responses:
+        '204': { description: Accepted }
+        '404': { $ref: '#/components/responses/Error' }
