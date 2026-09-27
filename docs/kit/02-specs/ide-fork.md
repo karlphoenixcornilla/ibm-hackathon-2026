@@ -5,8 +5,10 @@ Implements R-2, R-16, ADR-1, ADR-2. Gates: G-1 to G-6, G-19, G-21, G-26.
 ## Source
 
 - Fork `microsoft/vscode` into public `OWNER/reprise-ide`.
-- Pin a stable release tag (PD-3). Record it here: **Pinned tag: (fill in during phase 1)**.
+- Pin a stable release tag (PD-3). Record it here: **Pinned tag: `1.139.1`** (also in `ide/CODE_OSS_TAG`, which the build reads; `.nvmrc` at the tag: Node 24.18.0).
 - Create branch `reprise/main` from the tag. All Reprise changes live on it.
+
+> **As built:** the team repository is not a fork. Instead, `pages.yml` checks out `microsoft/vscode` at the pinned tag and `ide/build.mjs` applies the Reprise changes to that checkout at build time: `ide/product.overrides.json` is merged into `product.json`, and `extensions/reprise` is bundled and staged as the built-in extension `extensions/reprise`. The Code - OSS source itself is not modified. To upgrade, change `ide/CODE_OSS_TAG` and re-check the embedder page (`ide/index.html`, `ide/reprise-boot.js`) against `src/vs/code/browser/workbench/workbench.html` at the new tag.
 
 ## Build prerequisites (V-1)
 
@@ -29,17 +31,30 @@ Node.js x64 or ARM64, version 22 or later, using the exact version in `.nvmrc` a
 
 Record every `product.json` field changed, old and new value, in a table here during phase 1.
 
+`product.json` changes (from `ide/product.overrides.json`, at `1.139.1`):
+
+| Field | Old | New |
+| --- | --- | --- |
+| `nameShort` | `Code - OSS` | `Reprise` |
+| `nameLong` | `Code - OSS` | `Reprise IDE` |
+| `applicationName` | `code-oss` | `reprise` |
+| `dataFolderName` | `.vscode-oss` | `.reprise` |
+| `reportIssueUrl` | `https://github.com/microsoft/vscode/issues/new` | `https://github.com/karlphoenixcornilla/ibm-hackathon-2026/issues/new` |
+| `extensionsGallery` (PD-21) | not present in Code - OSS | not present; `ide/build.mjs` fails the build if an override adds it |
+
 ## Web build facts to record in phase 1
 
 | Item | Value |
 | --- | --- |
 | Command that runs the web workbench locally for development (G-1) | **(fill in)** |
-| Task that produces the minified static web build, output folder, size (G-5) | **(fill in)** |
-| File that is the web entry (embedder) page | **(fill in)** |
-| Headers the build needs, and what happens without them (G-6) | **(fill in)** |
+| Task that produces the minified static web build, output folder, size (G-5) | `npm run gulp vscode-web-min` (in the checkout) → `../vscode-web` (sibling of the checkout). Size and hosted-runner duration: **(fill in from the first `pages.yml` run; `ide/build.mjs` prints both)** |
+| File that is the web entry (embedder) page | `ide/index.html` + `ide/reprise-boot.js`, adapted from `src/vs/code/browser/workbench/workbench.html` (normally filled in by `src/vs/server/node/webClientServer.ts`). The page computes its base URL at runtime, so the same build works at `/ide/` on Pages and under a local static server. |
+| Headers the build needs, and what happens without them (G-6) | **(fill in: open the deployed `/ide/` and check the console)** |
 | Does Open Folder use the File System Access API; does it survive reload (G-21) | **(fill in)** |
 | Does the Source Control view work on the opened folder (G-26) | **(fill in)** |
-| Where the supported-browser check lives | **(fill in)** |
+| Where the supported-browser check lives | `ide/reprise-boot.js`: without `window.showDirectoryPicker` or a secure context it shows the unsupported-browser page from `browser-runtime.md` and never loads the workbench. |
+
+**Content-Security-Policy:** `ide/index.html` sets the policy that the Code - OSS server sends for its web client (a meta tag, since Pages cannot set headers). Extension `fetch` calls are governed by the extension host iframe's own policy (`src/vs/workbench/services/extensions/worker/webWorkerExtensionHostIframe.html`: `connect-src 'self' https: … http://127.0.0.1:*`), not by the embedder page. So narrowing `connect-src` to the list in `browser-runtime.md` would mean patching that Code - OSS file; that has not been done.
 
 ## Development loop
 

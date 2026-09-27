@@ -18,12 +18,10 @@ const config = {
   resolve: {
     mainFields: ['browser', 'module', 'main'],
     extensions: ['.ts', '.js'],
-    fallback: {
-      // Web workers don't have Node built-ins
-      path: require.resolve('path-browserify'),
-      buffer: require.resolve('buffer/'),
-      process: require.resolve('process/browser'),
-    },
+  },
+  optimization: {
+    // Web workers have no `process`; replace process.env.NODE_ENV at build time (see util/log.ts)
+    nodeEnv: 'production',
   },
   module: {
     rules: [
