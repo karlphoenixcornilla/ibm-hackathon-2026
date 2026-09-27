@@ -52,6 +52,18 @@ export class FakeGitHub implements GitHubService {
     return R.ok(undefined);
   }
 
+  async commitFixBranch(opts: {
+    repo: string;
+    branchName: string;
+    baseSha: string;
+    files: Array<{ path: string; content: string }>;
+    message: string;
+    fixScope: string[];
+    neverScope: string[];
+  }): Promise<Result<{ branchName: string; headSha: string }, string>> {
+    return R.ok({ branchName: opts.branchName, headSha: 'fake-head-sha' });
+  }
+
   async createOrUpdatePr(
     _repo: string,
     _branch: string,
@@ -61,6 +73,14 @@ export class FakeGitHub implements GitHubService {
     _draft: boolean
   ): Promise<Result<{ number: number; html_url: string }, string>> {
     return R.ok({ number: 42, html_url: 'https://github.com/demo-owner/demo-app/pull/42' });
+  }
+
+  async createIssueComment(
+    _repo: string,
+    _issue: number,
+    _body: string
+  ): Promise<Result<void, string>> {
+    return R.ok(undefined);
   }
 
   async dispatchWorkflow(
