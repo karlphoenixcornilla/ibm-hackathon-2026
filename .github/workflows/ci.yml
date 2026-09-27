@@ -57,8 +57,19 @@ jobs:
         with:
           node-version: "22"
 
+      - name: Install runner build dependencies
+        run: npm ci
+        working-directory: runner
+
+      - name: Build and smoke-test runner distribution
+        run: |
+          npm run build
+          node --check dist/reprise-runner.mjs
+          node dist/reprise-runner.mjs --help
+        working-directory: runner
+
       - name: Runner unit tests
-        run: node --test test/**/*.test.mjs
+        run: node --test test/*.test.mjs
         working-directory: runner
 
   dashboard:

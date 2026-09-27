@@ -99,3 +99,7 @@ export interface ArtifactsRequest {
 
 /** Results directory contents as JSON (platform folder → run folder → file). */
 export type ArtifactsResponse = Record<string, Record<string, unknown>>;
+
+// Local file contents are byte-preserving, never interpreted as commands.
+export interface FileResponse { path: string; content: string; encoding: 'base64'; }
+export interface WriteFileRequest { path: string; content: string; }

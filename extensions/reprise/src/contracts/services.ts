@@ -6,7 +6,7 @@ import type * as runtime from './runtime';
 import type { IssueRecord } from './records';
 import type { Provider } from './provider';
 import type { Executor, RunResult } from './execution';
-import type { PairResponse, StatusResponse } from './runner-api';
+import type { PairResponse, StatusResponse, ApproveResponse, RunsRequest, RunsResponse, RunnerEvent, OverlaysRequest, OverlaysResponse, FileResponse, WriteFileRequest } from './runner-api';
 import type { Result } from '../util/result';
 
 // ── Config ───────────────────────────────────────────────────────────────────
@@ -139,6 +139,8 @@ export interface WorkspaceService {
   sha256(bytes: Uint8Array): Promise<string>;
   /** Return the root URI of the opened folder, or null. */
   getRootUri(): string | null;
+  /** Live repository metadata when provided by a local bridge. */
+  getRepository?(): Promise<Result<StatusResponse | null, string>>;
 }
 
 // ── Store ─────────────────────────────────────────────────────────────────────
@@ -182,6 +184,14 @@ export interface RunnerClientService {
   getStatus(): Promise<Result<StatusResponse | null, string>>;
   /** True if currently paired. */
   isPaired(): boolean;
+  // Optional for older host adapters; consumers report unsupported capabilities explicitly.
+  approve?(path: string, sha256: string): Promise<Result<ApproveResponse, string>>;
+  readFile?(path: string): Promise<Result<FileResponse, string>>;
+  writeFile?(request: WriteFileRequest): Promise<Result<ApproveResponse, string>>;
+  createOverlay?(request: OverlaysRequest): Promise<Result<OverlaysResponse, string>>;
+  startRun?(request: RunsRequest): Promise<Result<RunsResponse, string>>;
+  openEventStream?(runId: string, onEvent: (event: RunnerEvent) => void): () => void;
+  cancelRun?(runId: string): Promise<void>;
   /** Fire when pairing state changes. */
   onDidChangePairing: runtime.Event<{ paired: boolean }>;
 }

@@ -4,14 +4,13 @@
 // Authorization: Bearer <session> on every route except /pair.
 
 import http from 'node:http';
-import { existsSync, readFileSync, mkdirSync, writeFileSync, unlinkSync } from 'node:fs';
-import { join, resolve, isAbsolute, normalize } from 'node:path';
+import { readFileSync, mkdirSync, writeFileSync, statSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 import { randomBytes, createHash } from 'node:crypto';
-import { homedir } from 'node:os';
-import { execSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 
 import { loadConfig, detectRemote, detectHead } from './config.mjs';
-import { buildEnv } from './env.mjs';
+import { importRepository, repositoryPath, scopedPath } from './local-repository.mjs';
 import { runCommand } from './exec.mjs';
 import { getOrCreateWorktree, removeWorktree, activeWorktrees } from './repo.mjs';
 
@@ -79,13 +78,11 @@ async function findPort(startPort, hostname) {
  * @param {RunnerArgs} args
  */
 export async function startServer(args) {
+  const imported = importRepository(args.root);
+  args = { ...args, root: imported.root };
+  const { config, remote, head } = imported;
   const hostname = '127.0.0.1';
   const port = await findPort(args.port, hostname);
-
-  // Load config and detect repo info
-  const config = loadConfig(args.root);
-  const remote = detectRemote(args.root);
-  const head = detectHead(args.root);
 
   // Run platform prerequisite checks
   const platformCapabilities = buildPlatformCapabilities(config);
@@ -196,8 +193,8 @@ export async function startServer(args) {
     return {
       runner_version: RUNNER_VERSION,
       root_name: args.root.split(/[/\\]/).pop() ?? args.root,
-      remote,
-      head,
+      remote: detectRemote(args.root),
+      head: detectHead(args.root),
       host_os: process.platform,
       platforms: platformCapabilities,
       busy,
@@ -295,17 +292,52 @@ export async function startServer(args) {
       return;
     }
 
+    // Local files are session-protected and restricted to configured edit scope.
+    if (method === 'GET' && url.startsWith('/file?')) {
+      try {
+        const path = new URL(url, 'http://localhost').searchParams.get('path');
+        const target = scopedPath(args.root, path, loadConfig(args.root));
+        const info = statSync(target);
+        if (!info.isFile()) throw new Error('Path is not a regular file');
+        if (info.size > MAX_BODY_BYTES) { json(req, res, 413, { error: 'File exceeds 1 MB' }); return; }
+        const bytes = readFileSync(target);
+        json(req, res, 200, { path, content: bytes.toString('base64'), encoding: 'base64' });
+      } catch (error) { json(req, res, error.code === 'ENOENT' ? 404 : 403, { error: error.message }); }
+      return;
+    }
+    if (method === 'POST' && url === '/file') {
+      if (busy) { json(req, res, 409, { error: 'Runner is busy' }); return; }
+      const parsed = await readBody(req);
+      if (!parsed.ok) { json(req, res, parsed.code, { error: parsed.message }); return; }
+      try {
+        const { path, content } = parsed.data;
+        if (typeof content !== 'string') throw new Error('content must be base64');
+        const target = scopedPath(args.root, path, loadConfig(args.root), 'write');
+        const bytes = Buffer.from(content, 'base64');
+        if (approvals.get(path) !== createHash('sha256').update(bytes).digest('hex')) {
+          json(req, res, 409, { error: 'Exact file content must be approved before writing' }); return;
+        }
+        mkdirSync(join(target, '..'), { recursive: true });
+        writeFileSync(target, bytes);
+        json(req, res, 200, { ok: true });
+      } catch (error) { json(req, res, 403, { error: error.message }); }
+      return;
+    }
+
     // ── POST /approve ────────────────────────────────────────────────────────
     if (method === 'POST' && url === '/approve') {
       const bodyResult = await readBody(req);
       if (!bodyResult.ok) { json(req, res, bodyResult.code, { error: bodyResult.message }); return; }
-      const body = /** @type {{ path?: string; sha256?: string }} */ (bodyResult.data);
+      const body = /** @type {{ path?: string; sha256?: string }} */ (bodyResult.data ?? {});
 
       if (typeof body.path !== 'string' || typeof body.sha256 !== 'string') {
         json(req, res, 400, { error: 'path and sha256 are required' });
         return;
       }
-      approvals.set(body.path, body.sha256);
+      try { scopedPath(args.root, body.path, loadConfig(args.root), 'write'); }
+      catch (error) { json(req, res, 403, { error: error.message }); return; }
+      if (!/^[a-f0-9]{64}$/i.test(body.sha256)) { json(req, res, 400, { error: 'sha256 must be a SHA-256 digest' }); return; }
+      approvals.set(body.path, body.sha256.toLowerCase());
       console.log(`[runner] Approved: ${body.path} (${body.sha256.slice(0, 8)}…)`);
       json(req, res, 200, { ok: true });
       return;
@@ -315,7 +347,7 @@ export async function startServer(args) {
     if (method === 'POST' && url === '/overlays') {
       const bodyResult = await readBody(req);
       if (!bodyResult.ok) { json(req, res, bodyResult.code, { error: bodyResult.message }); return; }
-      const body = /** @type {{ base?: string; files?: Array<{path:string;content:string}> }} */ (bodyResult.data);
+      const body = /** @type {{ base?: string; files?: Array<{path:string;content:string}> }} */ (bodyResult.data ?? {});
 
       if (typeof body.base !== 'string' || !Array.isArray(body.files)) {
         json(req, res, 400, { error: 'base (sha) and files[] are required' });
@@ -324,27 +356,24 @@ export async function startServer(args) {
 
       // Validate all file paths are approved
       const config2 = loadConfig(args.root);
-      const fixScope = config2?.edit_scope?.fix ?? [];
+      if (!/^[a-f0-9]{7,64}$/i.test(body.base)) { json(req, res, 400, { error: 'base must be a commit SHA' }); return; }
 
       for (const f of body.files) {
-        if (typeof f.path !== 'string' || typeof f.content !== 'string') {
+        if (!f || typeof f.path !== 'string' || typeof f.content !== 'string') {
           json(req, res, 400, { error: 'Each file must have path and content' });
           return;
         }
-        if (!isInsideEditScope(f.path, fixScope)) {
-          json(req, res, 403, { error: `Path "${f.path}" is outside edit_scope.fix` });
-          return;
-        }
+        try { scopedPath(args.root, f.path, config2, 'write'); }
+        catch (error) { json(req, res, 403, { error: error.message }); return; }
         const approvedHash = approvals.get(f.path);
-        if (!approvedHash) {
+        if (approvedHash !== createHash('sha256').update(f.content).digest('hex')) {
           json(req, res, 409, { error: `File "${f.path}" has not been approved via /approve` });
           return;
         }
       }
 
       const overlayId = randomBytes(12).toString('hex');
-      const overlayDir = join(homedir(), '.reprise-runner', 'overlays', overlayId);
-      mkdirSync(overlayDir, { recursive: true });
+      const overlayDir = ''; // Contents remain in memory until local worktree execution.
 
       overlays.set(overlayId, { base: body.base, files: body.files, dir: overlayDir });
       console.log(`[runner] Overlay ${overlayId} registered (base ${body.base.slice(0, 8)})`);
@@ -369,6 +398,13 @@ export async function startServer(args) {
         return;
       }
 
+      if (!['single', 'all', 'lint'].includes(mode) || !Number.isInteger(runsCount)) {
+        json(req, res, 400, { error: 'Invalid mode or runs count' }); return;
+      }
+      if (ref != null && (typeof ref !== 'object' || Object.keys(ref).length !== 1 ||
+        !Object.entries(ref).every(([key, value]) => ['base', 'head', 'overlay'].includes(key) && typeof value === 'string' && /^[a-f0-9]{7,64}$/i.test(value)))) {
+        json(req, res, 400, { error: 'Invalid run ref' }); return;
+      }
       const cfg = loadConfig(args.root);
 
       // Check 1: platform configured and local_possible
@@ -400,16 +436,18 @@ export async function startServer(args) {
             return;
           }
         }
-        // Check approval (for paths not tracked in git at HEAD unchanged)
-        const approved = approvals.get(testPath);
-        if (!approved) {
-          // Accept if it's a git-tracked file; else require approval
-          const isTracked = isTrackedInGit(args.root, testPath);
-          if (!isTracked) {
-            json(req, res, 409, { error: 'Test not approved: call /approve with the file path and SHA-256 first' });
-            return;
+        try {
+          repositoryPath(args.root, testPath);
+          // For ref runs, check the selected worktree immediately before execution.
+          if (ref == null) {
+            const bytes = readFileSync(repositoryPath(args.root, testPath));
+            const approved = approvals.get(testPath);
+            if (approved ? approved !== createHash('sha256').update(bytes).digest('hex') : !isTrackedInGit(args.root, testPath)) {
+              json(req, res, 409, { error: 'Test not approved or content changed since approval' }); return;
+            }
           }
-        }
+        } catch (error) { json(req, res, 409, { error: error.message }); return; }
+
       }
 
       // Check 3: runs count
@@ -472,6 +510,7 @@ export async function startServer(args) {
 
       // If run already finished, flush accumulated events
       const runData = runs.get(runId);
+      if (!runData) { sendEvent({ type: 'error', message: 'Run not found' }); res.end(); sseStreams.delete(runId); }
       if (runData) {
         for (const r of runData.results) {
           sendEvent(r);
@@ -566,6 +605,8 @@ export async function startServer(args) {
     const runData = runs.get(runId);
     if (!runData) return;
 
+    const controller = new AbortController();
+    runData.abort = () => controller.abort();
     let workDir = args.root;
     let worktreePath = null;
 
@@ -582,15 +623,14 @@ export async function startServer(args) {
       } else if (ref && 'overlay' in ref) {
         const overlay = overlays.get(ref.overlay);
         if (!overlay) {
-          emitSseEvent(runId, { type: 'error', message: `Overlay "${ref.overlay}" not found` });
-          return;
+          throw new Error(`Overlay "${ref.overlay}" not found`);
         }
         worktreePath = await getOrCreateWorktree(args.root, remote, overlay.base);
         activeWorktrees.add(worktreePath);
         workDir = worktreePath;
         // Write overlay files into worktree
         for (const f of overlay.files) {
-          const dest = join(worktreePath, f.path);
+          const dest = repositoryPath(worktreePath, f.path);
           mkdirSync(join(dest, '..'), { recursive: true });
           writeFileSync(dest, f.content, 'utf8');
         }
@@ -600,28 +640,33 @@ export async function startServer(args) {
       const adapter = ADAPTERS[/** @type {keyof typeof ADAPTERS} */ (platform)];
       const command = adapter ? adapter.getCommand(loadConfig(args.root), /** @type {any} */ (mode)) : '';
       if (!command) {
-        emitSseEvent(runId, { type: 'error', message: `No ${mode} command configured for platform ${platform}` });
-        return;
+        throw new Error(`No ${mode} command configured for platform ${platform}`);
       }
 
-      const cwd = pc.cwd ? join(workDir, pc.cwd) : workDir;
+      const cwd = repositoryPath(workDir, pc.cwd ?? '.', { allowRoot: true });
       const timeoutMs = (pc.run_timeout_seconds ?? 300) * 1000;
       const reportPath = pc.test?.report_path
-        ? (isAbsolute(pc.test.report_path) ? pc.test.report_path : join(workDir, pc.test.report_path))
+        ? repositoryPath(workDir, pc.test.report_path)
         : '';
       const reportFormat = pc.test?.report ?? 'junit';
 
-      let aborted = false;
-      runData.abort = () => { aborted = true; };
+      if (controller.signal.aborted) throw new Error('Run cancelled');
+      if (mode === 'single') {
+        const target = repositoryPath(workDir, testPath);
+        const bytes = readFileSync(target);
+        const approved = approvals.get(testPath);
+        if (approved ? approved !== createHash('sha256').update(bytes).digest('hex') : !isTrackedInGit(workDir, testPath)) throw new Error('Test content is not approved');
+      }
 
       for (let i = 0; i < runsCount; i++) {
-        if (aborted) break;
+        if (controller.signal.aborted) break;
         const result = await runCommand({
+          signal: controller.signal,
           platform,
           command,
           shell,
           cwd,
-          testPath,
+          testPath: testPath ? resolve(workDir, testPath) : '',
           timeoutMs,
           reportPath,
           reportFormat,
@@ -636,17 +681,20 @@ export async function startServer(args) {
         emitSseEvent(runId, { type: 'result', result });
       }
     } catch (err) {
-      emitSseEvent(runId, { type: 'error', message: err instanceof Error ? err.message : String(err) });
+      const event = { type: 'error', message: err instanceof Error ? err.message : String(err) };
+      runData.results.push(event);
+      emitSseEvent(runId, event);
     } finally {
-      runData.done = true;
-      emitSseEvent(runId, { type: 'done' });
-      const stream = sseStreams.get(runId);
-      if (stream) { stream.close(); sseStreams.delete(runId); }
-
       if (worktreePath) {
         await removeWorktree(args.root, worktreePath).catch(() => {});
         activeWorktrees.delete(worktreePath);
       }
+      runData.done = true;
+      busy = false;
+      emitSseEvent(runId, { type: 'done' });
+      const stream = sseStreams.get(runId);
+      if (stream) { stream.close(); sseStreams.delete(runId); }
+
     }
   }
 
@@ -697,7 +745,7 @@ function buildPlatformCapabilities(config) {
  */
 function isTrackedInGit(root, relPath) {
   try {
-    execSync(`git ls-files --error-unmatch -- ${relPath}`, {
+    execFileSync('git', ['ls-files', '--error-unmatch', '--', relPath], {
       cwd: root,
       stdio: ['pipe', 'pipe', 'pipe'],
     });
@@ -720,15 +768,4 @@ function globToRegExp(glob) {
     .replace(/\*/g, '[^/]*')
     .replace(/§DSTAR§/g, '.*');
   return new RegExp(`^${escaped}$`);
-}
-
-/**
- * Check if a path is inside the edit scope.
- * @param {string} filePath
- * @param {string[]} scope
- * @returns {boolean}
- */
-function isInsideEditScope(filePath, scope) {
-  if (scope.length === 0) return true;
-  return scope.some(pattern => globToRegExp(pattern).test(filePath));
 }

@@ -47,3 +47,9 @@ CI checks the core, runner and dashboard without building an editor or deploying
 ## Architecture documentation
 
 [Current architecture](docs/kit/01-architecture/architecture.md) describes the host boundary. Other files in `docs/kit` and `docs/implementation` preserve historical specifications: editor, Chromium-only, static-hosting and Pages instructions are superseded by pivot #29 and must not be used as current requirements.
+
+## Import an existing local repository
+
+Start the runner with `--root` pointing to a Git repository containing `.reprise.yml`, then use the exported `importLocalRepository()` helper to pair and load it. The imported workspace reads local contents and writes only approved, scoped changes. `runLocalOverlay()` verifies proposed fixes in an isolated local worktree through the existing executor contract.
+
+See [local repository integration](docs/local-repository.md) for host callbacks, path semantics, requirements, and examples.

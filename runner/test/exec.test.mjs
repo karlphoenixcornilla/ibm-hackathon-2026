@@ -168,3 +168,25 @@ describe('runCommand — output_tail capped at 200 lines', () => {
     assert.ok(lines.length <= 200, `output_tail should have ≤200 lines, got ${lines.length}`);
   });
 });
+
+describe('runCommand — local execution failures and output', () => {
+  const options = {
+    platform: 'linux', shell, cwd: tmpdir(), testPath: '', timeoutMs: 5000,
+    reportPath: '', reportFormat: 'junit', hostOs: process.platform, device: '',
+    envRemove: [], envKeep: [], onOutput: () => {},
+  };
+  it('returns a null exit status and streams a process-start failure', async () => {
+    const lines = [];
+    const result = await runCommand({ ...options, command: 'echo no', cwd: join(tmpdir(), 'missing-reprise-directory-9342'), onOutput: line => lines.push(line) });
+    assert.equal(result.exit_code, null);
+    assert.equal(result.timed_out, false);
+    assert.match(result.output_tail, /Failed to start process/);
+    assert.ok(lines.some(line => line.includes('Failed to start process')));
+  });
+  it('collects stdout and stderr including incomplete trailing lines', async () => {
+    const result = await runCommand({ ...options, command: `node -e "process.stdout.write('out');process.stderr.write('err')"` });
+    assert.equal(result.exit_code, 0);
+    assert.match(result.output_tail, /out/);
+    assert.match(result.output_tail, /err/);
+  });
+});

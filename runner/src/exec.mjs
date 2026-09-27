@@ -6,7 +6,6 @@
 
 import { spawn } from 'node:child_process';
 import { rmSync, existsSync, readFileSync } from 'node:fs';
-import { join, isAbsolute } from 'node:path';
 import { platform as osPlatform } from 'node:process';
 import { buildEnv } from './env.mjs';
 import { parseJunit } from './shared/junit-parser.mjs';
@@ -18,6 +17,7 @@ const MAX_TAIL_LINES = 200;
 
 /**
  * @typedef {object} ExecOptions
+ * @property {AbortSignal} [signal]  Optional cancellation signal
  * @property {string}   platform       Platform key ('android', 'windows', …)
  * @property {string}   command        Shell command (may contain {file})
  * @property {string}   shell          Shell executable ('bash', 'pwsh', 'cmd', etc.)
@@ -71,6 +71,8 @@ export async function runCommand(opts) {
     onOutput,
   } = opts;
 
+  if (opts.signal?.aborted) throw new Error('Run cancelled');
+
   // 1. Delete stale report before the run
   if (reportPath && existsSync(reportPath)) {
     try { rmSync(reportPath); } catch { /**/ }
@@ -99,21 +101,24 @@ export async function runCommand(opts) {
       env,
       stdio: ['ignore', 'pipe', 'pipe'],
       // On Windows, spawn a process group so we can kill the tree.
-      ...(osPlatform === 'win32' ? { detached: true } : {}),
+      detached: true,
     });
 
-    /** @param {Buffer} chunk */
-    const handleChunk = (chunk) => {
-      const lines = chunk.toString().split(/\r?\n/);
-      for (const line of lines) {
-        if (line === '' && lines[lines.length - 1] === line) continue; // skip trailing empty
-        allLines.push(line);
-        onOutput(line);
-      }
+    const pending = { stdout: '', stderr: '' };
+    const emit = (line) => { allLines.push(line); onOutput(line); };
+    const handleChunk = (stream, chunk) => {
+      pending[stream] += chunk.toString();
+      const lines = pending[stream].split(/\r?\n/);
+      pending[stream] = lines.pop() ?? '';
+      for (const line of lines) emit(line);
     };
-
-    child.stdout.on('data', handleChunk);
-    child.stderr.on('data', handleChunk);
+    const abort = () => killTree(child);
+    opts.signal?.addEventListener('abort', abort, { once: true });
+    if (opts.signal?.aborted) abort();
+    child.stdout.setEncoding('utf8');
+    child.stderr.setEncoding('utf8');
+    child.stdout.on('data', chunk => handleChunk('stdout', chunk));
+    child.stderr.on('data', chunk => handleChunk('stderr', chunk));
 
     const timer = setTimeout(() => {
       timedOut = true;
@@ -121,14 +126,19 @@ export async function runCommand(opts) {
     }, timeoutMs);
 
     child.on('close', (code) => {
+      for (const stream of ['stdout', 'stderr']) if (pending[stream]) emit(pending[stream]);
       clearTimeout(timer);
+      opts.signal?.removeEventListener('abort', abort);
       exitCode = code;
       resolve(undefined);
     });
 
     child.on('error', (err) => {
       clearTimeout(timer);
-      allLines.push(`[runner] Failed to start process: ${err.message}`);
+      opts.signal?.removeEventListener('abort', abort);
+      const message = `[runner] Failed to start process: ${err.message}`;
+      allLines.push(message);
+      onOutput(message);
       resolve(undefined);
     });
   });

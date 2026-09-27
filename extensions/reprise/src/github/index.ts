@@ -102,6 +102,7 @@ export function createGitHub(services: {
   auth: AuthService;
   config: ConfigService;
   workspaceReader: WorkspaceFileReader;
+  repositoryRemote?: () => Promise<string | null>;
 }): GitHubService {
 
   function tok(): string {
@@ -113,6 +114,11 @@ export function createGitHub(services: {
   // ── detectRepo ────────────────────────────────────────────────────────────
 
   async function detectRepo(): Promise<Result<string, string>> {
+    if (services.repositoryRemote) {
+      const remote = await services.repositoryRemote();
+      const repo = remote ? extractOwnerRepo(remote) : null;
+      return repo ? Result.ok(repo) : Result.err('The imported repository has no GitHub origin; local execution remains available.');
+    }
     const readText = async (p: string): Promise<string | null> => {
       const r = await services.workspaceReader(p);
       return r;

@@ -41,9 +41,9 @@ export const testStage: Stage = {
           services.security.recordApproval(f.path, sha256);
           // Fix #16: forward approval to the runner so POST /runs doesn't get 409
           if (services.runnerClient.isPaired()) {
-            (services.runnerClient as unknown as { approve(p: string, s: string): Promise<unknown> })
-              .approve(f.path, sha256)
-              .catch(() => { /* runner may not be paired; ignore */ });
+            if (!services.runnerClient.approve) throw new Error('Runner does not support file approval');
+            const approval = await services.runnerClient.approve(f.path, sha256);
+            if (!approval.ok) throw new Error(`Runner approval failed: ${approval.error}`);
           }
           record.replication.repro.test_sha256 = sha256;
         }
