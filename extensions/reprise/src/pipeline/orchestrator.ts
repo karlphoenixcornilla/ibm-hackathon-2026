@@ -206,9 +206,7 @@ export class PipelineOrchestrator implements PipelineService {
       const result = results[0];
       if (!result) continue;
 
-      const failMsg = result.tests.filter((t) => t.status === 'failed').map((t) => t.message).join('\n');
-      const { classifyTrial } = await import('../stats/stats');
-      const outcome = classifyTrial(result.exit_code, result.timed_out, failMsg, result.output_tail, sig);
+      const outcome = this.services.stats.classifyTrial(result, sig);
 
       if (outcome === 'PASS') { pass++; sequence += 'P'; }
       else if (outcome === 'FAIL_MATCH') { fail_match++; sequence += 'F'; }
@@ -218,10 +216,9 @@ export class PipelineOrchestrator implements PipelineService {
 
     const n = pass + fail_match;
     const k = fail_match;
-    const { wilsonInterval, verdict: computeVerdict } = await import('../stats/stats');
-    const { low: wilsonLow, high: wilsonHigh } = wilsonInterval(k, n);
+    const { low: wilsonLow, high: wilsonHigh } = this.services.stats.wilsonInterval(k, n);
     const counts = { pass, fail_match, fail_other, error };
-    const v = computeVerdict(counts);
+    const v = this.services.stats.verdict(counts, repro.trials_policy);
 
     repro.trials = n;
     repro.failed = k;

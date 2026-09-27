@@ -4,13 +4,6 @@
 
 import type { Stage, PipelineContext, StageResult } from './types';
 import type { TrialsPolicy as RecordTrialsPolicy } from '../contracts/records';
-import {
-  classifyTrial,
-  wilsonInterval,
-  zeroFailureUpperBound,
-  shouldEarlyStop,
-  verdict as computeVerdict,
-} from '../stats/stats';
 import { touchRecord } from './record-factory';
 
 export const trialsStage: Stage = {
@@ -67,17 +60,7 @@ export const trialsStage: Stage = {
       const result = results[0];
       if (!result) continue;
 
-      const failMsg = result.tests
-        .filter((t) => t.status === 'failed')
-        .map((t) => t.message)
-        .join('\n');
-      const outcome = classifyTrial(
-        result.exit_code,
-        result.timed_out,
-        failMsg,
-        result.output_tail,
-        sig
-      );
+      const outcome = services.stats.classifyTrial(result, sig);
 
       if (outcome === 'PASS') { pass++; sequence += 'P'; }
       else if (outcome === 'FAIL_MATCH') { fail_match++; sequence += 'F'; }
@@ -95,7 +78,7 @@ export const trialsStage: Stage = {
       }
 
       // Check early stop at min (spec §2a rule 1)
-      if (n >= merged.min && shouldEarlyStop(n, fail_match, merged.min)) {
+      if (n >= merged.min && fail_match === n) {
         stoppedBy = 'all_failed_at_min';
         break;
       }
@@ -116,16 +99,16 @@ export const trialsStage: Stage = {
     const invalid = fail_other + error;
 
     // Compute Wilson interval
-    const { low: wilsonLow, high: wilsonHigh } = wilsonInterval(k, n);
+    const { low: wilsonLow, high: wilsonHigh } = services.stats.wilsonInterval(k, n);
 
     // Compute verdict
     const counts = { pass, fail_match, fail_other, error };
-    const v = computeVerdict(counts);
+    const v = services.stats.verdict(counts, merged);
 
     // Build NEEDS_INFO upper-bound sentence if k === 0
     let question = '';
     if (v === 'NEEDS_INFO' && n > 0) {
-      const bound = zeroFailureUpperBound(n);
+      const bound = 1 - Math.pow(0.05, 1 / n);
       question = `The test never failed in ${n} runs, so if this bug exists here it happens in fewer than about ${(bound * 100).toFixed(1)}% of runs.`;
     }
 

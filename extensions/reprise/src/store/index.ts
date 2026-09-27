@@ -108,7 +108,7 @@ export function createStore(services: { github: GitHubService }): StoreService {
   async function load(
     repo: string,
     issue: number
-  ): Promise<import('../util/result').Result<IssueRecord | null, string>> {
+  ): Promise<Result<IssueRecord | null, string>> {
     const key = cacheKey(repo, issue);
 
     // 1. In-memory hit
@@ -139,7 +139,7 @@ export function createStore(services: { github: GitHubService }): StoreService {
     return Result.ok(record);
   }
 
-  async function save(record: IssueRecord): Promise<import('../util/result').Result<void, string>> {
+  async function save(record: IssueRecord): Promise<Result<void, string>> {
     const key = cacheKey(record.repo, record.issue);
 
     // Validate before writing

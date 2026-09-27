@@ -4,7 +4,7 @@
 
 import type { Stage, PipelineContext, StageResult } from './types';
 import type { RootcauseOutput } from '../contracts/provider';
-import { validateStageOutput } from '../providers/schema-validator';
+import { validateStageOutput } from '../util/stage-output-validator';
 import { touchRecord } from './record-factory';
 
 export const diagnosisStage: Stage = {

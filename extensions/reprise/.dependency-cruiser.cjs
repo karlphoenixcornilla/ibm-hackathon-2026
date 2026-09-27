@@ -21,32 +21,15 @@ module.exports = {
         'Only src/wiring/ and src/fakes/ may import across modules.',
       severity: 'error',
       from: {
-        // For each module folder, check whether "to" is in a DIFFERENT module folder.
-        // We use separate per-module rules generated below so that self-imports are always allowed.
-        // This top-level rule is disabled in favour of the per-module rules.
-        path: '^src/(?!contracts|util|wiring|fakes|extension\\.ts)',
+        path: '^src/(?!(?:contracts|util|wiring|fakes)/)(exec/[^/]+|[^/]+)/',
       },
       to: {
         path: '^src/',
         pathNot: [
           '^src/contracts/',
           '^src/util/',
-          // Per-module self-import exemptions — every module folder listed here
-          '^src/auth/',
-          '^src/config/',
-          '^src/exec/',
-          '^src/fix/',
-          '^src/github/',
-          '^src/pipeline/',
-          '^src/providers/',
-          '^src/runner-client/',
-          '^src/security/',
-          '^src/stats/',
-          '^src/store/',
-          '^src/verify/',
-          '^src/views/',
-          '^src/wiring/',
-          '^src/workspace/',
+          // Match the module captured in from.path, including exec/local or exec/ci.
+          '^src/$1/',
         ],
       },
     },

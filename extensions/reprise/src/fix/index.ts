@@ -10,7 +10,7 @@ import type { Result } from '../util/result';
 import { Result as R } from '../util/result';
 
 /** Minimal non-cancellable token for use when no real token is provided. */
-function neverCancelled(): import('vscode').CancellationToken {
+function neverCancelled(): vscode.CancellationToken {
   return { isCancellationRequested: false, onCancellationRequested: () => ({ dispose: () => undefined }) };
 }
 

@@ -3,7 +3,7 @@
 // Spec: 02-specs/replication-pipeline.md §2
 
 import type { Stage, PipelineContext, StageResult } from './types';
-import type { Fingerprint } from '../contracts/records';
+import type { Fingerprint, IssueRecord } from '../contracts/records';
 import type { DedupeOutput } from '../contracts/provider';
 import { touchRecord } from './record-factory';
 
@@ -74,7 +74,7 @@ export const dedupeStage: Stage = {
     const currentFp = record.replication.fingerprint;
 
     // Load all earlier records for this repo
-    let candidates: import('../contracts/records').IssueRecord[] = [];
+    const candidates: IssueRecord[] = [];
     {
       // We use the store's cache — only records already loaded in this session
       // In a real implementation we'd iterate the reprise-data branch.

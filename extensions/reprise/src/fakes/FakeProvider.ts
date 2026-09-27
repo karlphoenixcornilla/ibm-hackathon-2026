@@ -82,7 +82,7 @@ export class FakeProvider implements ProvidersService {
 
   // Dummy event emitter
   private emitter = { event: (_listener: (e: { id: string }) => void) => ({ dispose: () => undefined }) };
-  readonly onDidChangeProvider = this.emitter.event as import('vscode').Event<{ id: string }>;
+  readonly onDidChangeProvider = this.emitter.event as vscode.Event<{ id: string }>;
 
   getActive(): Provider {
     return this.providers.find((p) => p.id === this.activeId) ?? this.providers[0]!;

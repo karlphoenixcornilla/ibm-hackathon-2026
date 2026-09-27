@@ -4,7 +4,6 @@
 
 import type { Stage, PipelineContext, StageResult } from './types';
 import type { TestOutput } from '../contracts/provider';
-import { classifyTrial } from '../stats/stats';
 import { touchRecord } from './record-factory';
 
 export const firstRunStage: Stage = {
@@ -50,13 +49,7 @@ export const firstRunStage: Stage = {
         .filter((t) => t.status === 'failed')
         .map((t) => t.message)
         .join('\n');
-      const outcome = classifyTrial(
-        result.exit_code,
-        result.timed_out,
-        failMsg,
-        result.output_tail,
-        sig
-      );
+      const outcome = services.stats.classifyTrial(result, sig);
 
       ctx.addEvent('run.finished', outcome);
 
