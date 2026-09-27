@@ -82,6 +82,64 @@ jobs:
             exit 1
           fi
 
+  server:
+    name: Server — typecheck, lint, test, docker build
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: |
+            core/package-lock.json
+            server/package-lock.json
+
+      # The server imports @reprise/core from core/out.
+      - name: Build core
+        run: npm ci && npm run build
+        working-directory: core
+
+      - name: Install dependencies
+        run: npm ci
+        working-directory: server
+
+      - name: TypeScript typecheck
+        run: npm run typecheck
+        working-directory: server
+
+      - name: ESLint
+        run: npm run lint
+        working-directory: server
+
+      - name: Unit tests
+        run: npm test
+        working-directory: server
+
+      - name: Docker build
+        run: docker build -t reprise-server .
+
+  deploy:
+    name: Deploy backend to Render
+    needs: [core, server]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Trigger Render deploy hook
+        env:
+          HOOK: ${{ secrets.RENDER_DEPLOY_HOOK }}
+        run: |
+          if [ -z "$HOOK" ]; then
+            echo "::notice::RENDER_DEPLOY_HOOK is not set; skipping deploy"
+            exit 0
+          fi
+          curl -fsS -X POST "$HOOK" > /dev/null
+          echo "Render deploy triggered"
+
   runner:
     name: Runner — tests
     runs-on: ubuntu-latest

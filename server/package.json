@@ -1,0 +1,37 @@
+{
+  "name": "@reprise/server",
+  "version": "0.1.0",
+  "description": "Reprise backend: serves the Review UI and the app API over @reprise/core.",
+  "license": "MIT",
+  "private": true,
+  "main": "./out/src/main.js",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src test",
+    "pretest": "tsc",
+    "test": "node --test \"out/test/**/*.test.js\"",
+    "start": "node out/src/main.js",
+    "dev": "tsc && node out/src/main.js",
+    "dev:mock": "tsc && node -e \"process.env.REPRISE_MOCK='1'; require('./out/src/main.js')\""
+  },
+  "dependencies": {
+    "@fastify/cookie": "^11.1.2",
+    "@fastify/static": "^10.1.5",
+    "@reprise/core": "file:../core",
+    "fastify": "^5.2.0",
+    "js-yaml": "^4.1.0"
+  },
+  "devDependencies": {
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^22.0.0",
+    "@typescript-eslint/eslint-plugin": "^8.0.0",
+    "@typescript-eslint/parser": "^8.0.0",
+    "ajv": "^8.17.0",
+    "eslint": "^9.0.0",
+    "typescript": "^5.7.0"
+  }
+}
