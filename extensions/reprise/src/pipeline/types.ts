@@ -3,7 +3,7 @@
 
 import type { IssueRecord } from '../contracts/records';
 import type { Services, TrialsPolicy } from '../contracts/services';
-import type * as vscode from 'vscode';
+import type * as runtime from '../contracts/runtime';
 
 export interface PipelineContext {
   repo: string;
@@ -11,7 +11,7 @@ export interface PipelineContext {
   record: IssueRecord;
   services: Omit<Services, 'pipeline'>;
   trialsOverride?: Partial<TrialsPolicy>;
-  token: vscode.CancellationToken;
+  token: runtime.CancellationToken;
   /** Append an event to the record. */
   addEvent(type: string, detail?: string): void;
 }

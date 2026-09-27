@@ -3,11 +3,11 @@ import type { RunnerClientService } from '../contracts/services';
 import type { PairResponse, StatusResponse } from '../contracts/runner-api';
 import type { Result } from '../util/result';
 import { Result as R } from '../util/result';
-import * as vscode from 'vscode';
+import * as runtime from '../contracts/runtime';
 
 export class FakeRunnerClient implements RunnerClientService {
   private paired = false;
-  private emitter = new vscode.EventEmitter<{ paired: boolean }>();
+  private emitter = new runtime.EventEmitter<{ paired: boolean }>();
   readonly onDidChangePairing = this.emitter.event;
 
   async pair(_code: string): Promise<Result<PairResponse, string>> {

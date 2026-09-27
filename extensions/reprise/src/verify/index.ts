@@ -1,7 +1,7 @@
 // verify/ — repro check and regression comparison
 // Owned by: T4
 // Spec: 02-specs/fix-and-verify.md §6–7, statistics.md §5–6, regression-classification.mmd
-import type * as vscode from 'vscode';
+import type * as runtime from '../contracts/runtime';
 import type { Services, VerifyService } from '../contracts/services';
 import type { IssueRecord, VerificationRepro, VerificationRegression, Verification } from '../contracts/records';
 import type { VerifyVerdict, TestClass } from '../contracts/enums';
@@ -10,7 +10,7 @@ import type { Result } from '../util/result';
 import { Result as R } from '../util/result';
 
 /** Minimal non-cancellable token for use when no real token is provided. */
-function neverCancelled(): vscode.CancellationToken {
+function neverCancelled(): runtime.CancellationToken {
   return { isCancellationRequested: false, onCancellationRequested: () => ({ dispose: () => undefined }) };
 }
 
@@ -176,7 +176,7 @@ class VerifyServiceImpl implements VerifyService {
   async verify(
     repo: string,
     issue: number,
-    token?: vscode.CancellationToken,
+    token?: runtime.CancellationToken,
   ): Promise<Result<IssueRecord, string>> {
     const recordResult = await this.svc.store.load(repo, issue);
     if (!recordResult.ok) { return recordResult; }
@@ -343,7 +343,7 @@ class VerifyServiceImpl implements VerifyService {
     repo: string,
     issue: number,
     record: IssueRecord,
-    token: vscode.CancellationToken,
+    token: runtime.CancellationToken,
   ): Promise<void> {
     const provider = this.svc.providers.getActive();
     try {

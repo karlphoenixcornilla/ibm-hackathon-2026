@@ -2,12 +2,12 @@
 import type { AuthService } from '../contracts/services';
 import type { Result } from '../util/result';
 import { Result as R } from '../util/result';
-import * as vscode from 'vscode';
+import * as runtime from '../contracts/runtime';
 
 export class FakeAuth implements AuthService {
   private token = 'fake-github-token-abc123';
   private signedIn = true;
-  private emitter = new vscode.EventEmitter<{ signedIn: boolean }>();
+  private emitter = new runtime.EventEmitter<{ signedIn: boolean }>();
   readonly onDidChangeSession = this.emitter.event;
 
   async signIn(): Promise<Result<string, string>> {

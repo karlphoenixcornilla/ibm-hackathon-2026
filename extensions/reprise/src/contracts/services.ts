@@ -1,9 +1,8 @@
 // contracts/services.ts — Services container: the central contract for all tracks.
-// FROZEN after base-v1. Every track codes against these interfaces.
-// Change only via change request (CR) — additive, new optional fields only.
+// Shared contracts. Pivot #29 removes the obsolete editor runtime types.
 // Spec: 00-base.md §B3, 01-architecture/architecture.md
 
-import type * as vscode from 'vscode';
+import type * as runtime from './runtime';
 import type { IssueRecord } from './records';
 import type { Provider } from './provider';
 import type { Executor, RunResult } from './execution';
@@ -79,8 +78,8 @@ export interface ConfigService {
   load(): Promise<Result<RepriseConfig, string>>;
   /** Return the last successfully loaded config, or null if not yet loaded. */
   get(): RepriseConfig | null;
-  /** Return the URI of the loaded .reprise.yml file, or null. */
-  getUri(): vscode.Uri | null;
+  /** Return the identifier of the loaded .reprise.yml file, or null. */
+  getUri(): string | null;
   /** Invalidate the cache so the next load() re-reads from disk. */
   invalidate(): void;
 }
@@ -97,7 +96,7 @@ export interface AuthService {
   /** True if a valid session exists. */
   isSignedIn(): boolean;
   /** Fire when sign-in state changes. */
-  onDidChangeSession: vscode.Event<{ signedIn: boolean }>;
+  onDidChangeSession: runtime.Event<{ signedIn: boolean }>;
 }
 
 // ── GitHub ────────────────────────────────────────────────────────────────────
@@ -139,7 +138,7 @@ export interface WorkspaceService {
   /** Compute SHA-256 of bytes using crypto.subtle. */
   sha256(bytes: Uint8Array): Promise<string>;
   /** Return the root URI of the opened folder, or null. */
-  getRootUri(): vscode.Uri | null;
+  getRootUri(): string | null;
 }
 
 // ── Store ─────────────────────────────────────────────────────────────────────
@@ -162,12 +161,12 @@ export interface ViewsService {
   refreshBugReports(): void;
   /** Show or refresh the Runs tree. */
   refreshRuns(): void;
-  /** Open the Reprise panel webview for a specific issue. */
+  /** Open the Reprise report panel for a specific issue. */
   openPanel(repo: string, issue: number): void;
   /** Update the status bar text. */
   setStatusBar(text: string): void;
   /** Show an information message with optional actions. */
-  showInfo(message: string, ...actions: string[]): Thenable<string | undefined>;
+  showInfo(message: string, ...actions: string[]): PromiseLike<string | undefined>;
   /** Show an error message. */
   showError(message: string): void;
 }
@@ -184,7 +183,7 @@ export interface RunnerClientService {
   /** True if currently paired. */
   isPaired(): boolean;
   /** Fire when pairing state changes. */
-  onDidChangePairing: vscode.Event<{ paired: boolean }>;
+  onDidChangePairing: runtime.Event<{ paired: boolean }>;
 }
 
 // ── Executors ─────────────────────────────────────────────────────────────────
@@ -204,7 +203,7 @@ export interface ProvidersService {
   /** Set the active provider by id. Emits onDidChangeProvider. */
   setActive(id: string): Result<void, string>;
   /** Fire when the active provider changes. */
-  onDidChangeProvider: vscode.Event<{ id: string }>;
+  onDidChangeProvider: runtime.Event<{ id: string }>;
 }
 
 // ── Pipeline ──────────────────────────────────────────────────────────────────
@@ -218,7 +217,7 @@ export interface PipelineService {
     repo: string,
     issue: number,
     trialsOverride?: Partial<TrialsPolicy>,
-    token?: vscode.CancellationToken
+    token?: runtime.CancellationToken
   ): Promise<Result<IssueRecord, string>>;
 
   /** Add more trials to an existing replication. */
@@ -226,7 +225,7 @@ export interface PipelineService {
     repo: string,
     issue: number,
     count: number,
-    token?: vscode.CancellationToken
+    token?: runtime.CancellationToken
   ): Promise<Result<IssueRecord, string>>;
 }
 
@@ -252,18 +251,18 @@ export interface StatsService {
 
 export interface FixService {
   /** Propose fix candidates for an issue (calls the provider fix stage). */
-  proposeFixes(repo: string, issue: number, token?: vscode.CancellationToken): Promise<Result<IssueRecord, string>>;
+  proposeFixes(repo: string, issue: number, token?: runtime.CancellationToken): Promise<Result<IssueRecord, string>>;
   /** Run the quick check on a specific candidate. */
-  runQuickCheck(repo: string, issue: number, candidateK: number, token?: vscode.CancellationToken): Promise<Result<IssueRecord, string>>;
+  runQuickCheck(repo: string, issue: number, candidateK: number, token?: runtime.CancellationToken): Promise<Result<IssueRecord, string>>;
   /** Apply the selected candidate (write files and create PR). */
-  applySelected(repo: string, issue: number, token?: vscode.CancellationToken): Promise<Result<IssueRecord, string>>;
+  applySelected(repo: string, issue: number, token?: runtime.CancellationToken): Promise<Result<IssueRecord, string>>;
 }
 
 // ── Verify ────────────────────────────────────────────────────────────────────
 
 export interface VerifyService {
   /** Run the full verification suite (repro check + regression comparison). */
-  verify(repo: string, issue: number, token?: vscode.CancellationToken): Promise<Result<IssueRecord, string>>;
+  verify(repo: string, issue: number, token?: runtime.CancellationToken): Promise<Result<IssueRecord, string>>;
 }
 
 // ── Security ──────────────────────────────────────────────────────────────────
@@ -283,9 +282,9 @@ export interface SecurityService {
 
 /**
  * The central service container.
- * Created once in extension.ts from wiring/buildServices.
+ * Created by the host through wiring/buildServices.
  * Every module receives only the subset it needs.
- * FROZEN after base-v1.
+ * Host adapters provide UI, authentication and workspace access.
  */
 export interface Services {
   config: ConfigService;

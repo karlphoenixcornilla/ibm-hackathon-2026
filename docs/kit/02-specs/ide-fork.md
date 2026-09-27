@@ -1,3 +1,5 @@
+> Historical document: pivot #29 supersedes IDE/Code-OSS and static/Pages requirements, including work in #12, #14 and #22. See [the repository README](../../../README.md) for current integration instructions.
+
 # IDE Fork Spec (web build)
 
 Implements R-2, R-16, ADR-1, ADR-2. Gates: G-1 to G-6, G-19, G-21, G-26.

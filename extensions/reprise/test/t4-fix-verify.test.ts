@@ -268,7 +268,7 @@ function makeServices(
     }),
     list: () => [],
     setActive: () => R.ok(undefined),
-    onDidChangeProvider: fakeEvent as unknown as import('vscode').Event<{ id: string }>,
+    onDidChangeProvider: fakeEvent as unknown as import('../src/contracts/runtime').Event<{ id: string }>,
   };
 
   const executorObj = {
@@ -306,7 +306,7 @@ function makeServices(
       async signOut() {},
       getToken() { return 'fake-token'; },
       isSignedIn() { return true; },
-      onDidChangeSession: fakeEvent as unknown as import('vscode').Event<{ signedIn: boolean }>,
+      onDidChangeSession: fakeEvent as unknown as import('../src/contracts/runtime').Event<{ signedIn: boolean }>,
     },
     github: {
       async detectRepo() { return R.ok('demo-owner/demo-app'); },
@@ -339,7 +339,7 @@ function makeServices(
       async disconnect() {},
       async getStatus() { return R.ok(null); },
       isPaired() { return false; },
-      onDidChangePairing: fakeEvent as unknown as import('vscode').Event<{ paired: boolean }>,
+      onDidChangePairing: fakeEvent as unknown as import('../src/contracts/runtime').Event<{ paired: boolean }>,
     },
     executors: { local: executorObj, ci: executorObj },
     providers: providerService,

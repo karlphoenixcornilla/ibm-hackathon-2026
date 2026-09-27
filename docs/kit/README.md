@@ -1,3 +1,5 @@
+> Historical document: pivot #29 supersedes IDE/Code-OSS and static/Pages requirements, including work in #12, #14 and #22. See [the repository README](../../README.md) for current integration instructions.
+
 # Reprise IDE — Build Kit (v3, browser-based)
 
 This kit replaces v2 (desktop VS Code fork with installers). It defines **Reprise IDE** as a **browser-based IDE**: the web build of a VS Code (Code - OSS) fork, served as static files from GitHub Pages and opened in a Chromium-based browser (Google Chrome, Microsoft Edge and other browsers built on Chromium, R-16). The user opens their local repository folder in the browser through the **File System Access API**. The IDE connects to GitHub and the user's repository, lists bug reports, and, when the user acknowledges a report, recognises and replicates the bug by providing or validating a failing test and running it on the right platform (Windows native, Android, iOS, macOS, Linux). It then helps fix the bug and verifies the fix with repeated runs and a regression check. Results appear in the IDE and on a public dashboard.

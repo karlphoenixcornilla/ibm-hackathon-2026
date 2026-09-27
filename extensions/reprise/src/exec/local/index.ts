@@ -2,7 +2,7 @@
 // Owned by: T2
 // Spec: 02-specs/test-execution.md §Local executor
 
-import type * as vscode from 'vscode';
+import type * as runtime from '../../contracts/runtime';
 import type { Services } from '../../contracts/services';
 import type { Executor, RunRequest, RunResult, RunEvent, Availability } from '../../contracts/execution';
 import type { RunsRequest, RunsResponse, RunnerEvent } from '../../contracts/runner-api';
@@ -52,7 +52,7 @@ class LocalExecutor implements Executor {
 
   async run(
     req: RunRequest,
-    token: vscode.CancellationToken,
+    token: runtime.CancellationToken,
     onEvent: (event: RunEvent) => void
   ): Promise<RunResult[]> {
     const client = this.services.runnerClient;

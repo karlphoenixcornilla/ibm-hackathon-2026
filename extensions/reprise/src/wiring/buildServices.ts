@@ -1,13 +1,12 @@
 // wiring/buildServices.ts — compose the Services container
 // Owned by: Integration (after base-v1).
-// After T1–T5 merge: all real factories wired; fakes retained for useFakes mode.
+// Host adapters are supplied explicitly; fakes are available for tests.
 //
 // Spec: 00-base.md §B4, architecture.md §Extension layout
 
-import * as vscode from 'vscode';
 import type { Services } from '../contracts/services';
 
-// Fakes (used only when reprise.dev.useFakes is true)
+// Explicit test/demo implementations
 import { FakeConfig } from '../fakes/FakeConfig';
 import { FakeAuth } from '../fakes/FakeAuth';
 import { FakeGitHub } from '../fakes/FakeGitHub';
@@ -27,11 +26,8 @@ import { FakeSecurity } from '../fakes/FakeSecurity';
 import { createConfig } from '../config/config';
 
 // T1 real factories
-import { createAuth } from '../auth/index';
-import { createWorkspace } from '../workspace/index';
 import { createGitHub } from '../github/index';
 import { createStore } from '../store/index';
-import { createViews } from '../views/index';
 
 // T2 real factories
 import { createRunnerClient } from '../runner-client/index';
@@ -48,27 +44,18 @@ import { createFix } from '../fix/index';
 import { createVerify } from '../verify/index';
 import { createCiExecutor } from '../exec/ci/index';
 
-/**
- * Build the complete Services container.
- *
- * When `reprise.dev.useFakes` is true every service is a fully in-memory fake
- * so the extension can be demoed without a real repository, runner or GitHub token.
- *
- * Otherwise every module's real factory is used.
- */
-export function buildServices(context: vscode.ExtensionContext): Services {
-  const useFakes = vscode.workspace
-    .getConfiguration('reprise.dev')
-    .get<boolean>('useFakes', false);
-
-  if (useFakes) {
-    return buildFakeServices();
-  }
-
-  return buildRealServices(context);
+/** Host adapters are explicit; no editor, filesystem or credential store is assumed. */
+export interface HostServices {
+  auth: Services['auth'];
+  workspace: Services['workspace'];
+  views: Services['views'];
+  runnerPort?: number;
+}
+export function buildServices(host: HostServices): Services {
+  return buildRealServices(host);
 }
 
-function buildFakeServices(): Services {
+export function buildFakeServices(): Services {
   return {
     config: new FakeConfig(),
     auth: new FakeAuth(),
@@ -90,7 +77,7 @@ function buildFakeServices(): Services {
   };
 }
 
-function buildRealServices(context: vscode.ExtensionContext): Services {
+function buildRealServices(host: HostServices): Services {
   // We assemble Services incrementally; the container object is mutated in place
   // so that circular factory dependencies (runnerClient ↔ views, pipeline ↔ fix)
   // resolve without requiring a second pass.  Factories that accept `Omit<Services,
@@ -99,11 +86,11 @@ function buildRealServices(context: vscode.ExtensionContext): Services {
   const svc = {} as Services;
 
   // ── Base ────────────────────────────────────────────────────────────────────
-  svc.config = createConfig();
+  svc.config = createConfig(host.workspace);
 
   // ── T1 ──────────────────────────────────────────────────────────────────────
-  svc.auth = createAuth(context);
-  svc.workspace = createWorkspace();
+  svc.auth = host.auth;
+  svc.workspace = host.workspace;
   svc.github = createGitHub({
     auth: svc.auth,
     config: svc.config,
@@ -119,8 +106,8 @@ function buildRealServices(context: vscode.ExtensionContext): Services {
   svc.stats = createStats(svc as unknown as Omit<Services, 'stats'>);
   svc.security = createSecurity(svc as unknown as Omit<Services, 'security'>);
 
-  // ── Views placeholder — replaced after real views is constructed ─────────────
-  svc.views = new FakeViews();
+  // Host UI adapter
+  svc.views = host.views;
 
   // ── T2 ──────────────────────────────────────────────────────────────────────
   // Placeholder executors satisfy the executors.local/ci contract during
@@ -135,7 +122,7 @@ function buildRealServices(context: vscode.ExtensionContext): Services {
   svc.fix = new FakeFix();
   svc.verify = new FakeVerify();
 
-  svc.runnerClient = createRunnerClient(svc as unknown as Omit<Services, 'runnerClient'>);
+  svc.runnerClient = createRunnerClient(svc as unknown as Omit<Services, 'runnerClient'>, host.runnerPort);
 
   svc.executors = {
     local: createLocalExecutor(svc),
@@ -149,9 +136,6 @@ function buildRealServices(context: vscode.ExtensionContext): Services {
   // ── T4 ──────────────────────────────────────────────────────────────────────
   svc.fix = createFix(svc as unknown as Omit<Services, 'fix'>);
   svc.verify = createVerify(svc as unknown as Omit<Services, 'verify'>);
-
-  // ── T1 views (needs the complete container) ──────────────────────────────────
-  svc.views = createViews(svc, context);
 
   return svc;
 }
