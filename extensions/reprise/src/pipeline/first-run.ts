@@ -97,6 +97,12 @@ export const firstRunStage: Stage = {
               await services.workspace.writeFile(f.path, bytes);
               const sha256 = await services.workspace.sha256(bytes);
               services.security.recordApproval(f.path, sha256);
+              // Fix #16: forward approval to the runner so POST /runs doesn't get 409
+              if (services.runnerClient.isPaired()) {
+                (services.runnerClient as unknown as { approve(p: string, s: string): Promise<unknown> })
+                  .approve(f.path, sha256)
+                  .catch(() => { /* runner may not be paired; ignore */ });
+              }
               repro.test_sha256 = sha256;
             }
           }
