@@ -11,7 +11,6 @@ Part of the pivot epic #27. Builds on the backend (#30, `server/`) and the runne
    - There is no way to read repository files for display.
    - `/overlays` only accepts paths inside `edit_scope.fix`, so an overlay can't carry the reproduction test.
    - `/overlays` checks that an approval exists but not that its hash matches.
-   - `done` is emitted before worktree cleanup and before `busy` is cleared, so an immediate next `/runs` can get a 409.
    - `isTrackedInGit` interpolates the path into a shell command.
 
 ## Decisions
@@ -36,7 +35,6 @@ Part of the pivot epic #27. Builds on the backend (#30, `server/`) and the runne
 - **`POST /overlays`:**
   - Scope is `edit_scope.test ∪ edit_scope.fix`, minus `edit_scope.never`. An empty `test ∪ fix` means everything is allowed except `never`.
   - Each file's approved sha256 must equal the sha256 of `content`; otherwise `409`.
-- **`executeRun`** removes the worktree and clears `busy` *before* emitting `done`.
 - **`isTrackedInGit`** uses `execFileSync` (no shell).
 
 ## Server changes
@@ -128,7 +126,7 @@ class RunnerBridge {
 - **Runner:**
   - `/file` happy path, untracked 404, `..`/absolute 400, no auth 401.
   - `/overlays` accepts a test-scope file; rejects `never` (403) and a hash mismatch (409).
-  - `done` is emitted after cleanup: a second `/runs` immediately after `done` is not 409.
+  - A second `/runs` sent the moment `done` arrives is accepted. Cleanup is synchronous, so there is no busy window; the test guards that.
 - **Server unit tests:** `patch` (modify, add, fail), `connectRepo` (remote forms, mismatch), `RunnerWorkspace`, the `RelayExecutor` overlay flow (approve → overlay → overlay ref; overlay reused while the stage is unchanged), `StagingStore`.
 - **Server routes:**
   - `/check` in mock mode, and against a scripted fake browser that answers relay requests.
