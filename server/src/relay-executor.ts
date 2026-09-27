@@ -9,10 +9,18 @@ import type { Run } from './runs';
 export class RelayExecutor implements Executor {
   readonly id = 'local' as const;
 
-  constructor(private readonly target: Run, private readonly timeoutMs: number) {}
+  /**
+   * @param timeoutMs how long to wait for the browser to return a run's results
+   * @param connectGraceMs how long available() waits for the browser to open the run's stream
+   */
+  constructor(
+    private readonly target: Run,
+    private readonly timeoutMs: number,
+    private readonly connectGraceMs = 10_000,
+  ) {}
 
   async available(): Promise<Availability> {
-    return this.target.subscriberCount > 0
+    return (await this.target.waitForSubscriber(this.connectGraceMs))
       ? { available: true }
       : { available: false, reason: 'Open the Review UI to connect your local runner.' };
   }

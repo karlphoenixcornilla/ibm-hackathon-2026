@@ -7,13 +7,20 @@ import { RelayExecutor } from '../src/relay-executor';
 
 const REQ: RunRequest = { platform: 'windows', mode: 'single', test_path: 't.test.js', runs: 2, ref: null };
 
-test('unavailable until a browser is subscribed to the run', async () => {
+test('unavailable when no browser subscribes within the grace period', async () => {
   const run = new RunRegistry().create('s', 'acknowledge', 'o/r', 1);
-  const relay = new RelayExecutor(run, 1000);
+  const relay = new RelayExecutor(run, 1000, 5);
   assert.equal(relay.id, 'local');
   assert.equal((await relay.available()).available, false);
   run.subscribe(() => undefined);
   assert.deepEqual(await relay.available(), { available: true });
+});
+
+test('available() waits for a browser that subscribes during the grace period', async () => {
+  const run = new RunRegistry().create('s', 'acknowledge', 'o/r', 1);
+  const pending = new RelayExecutor(run, 1000, 1000).available();
+  setTimeout(() => run.subscribe(() => undefined), 10);
+  assert.deepEqual(await pending, { available: true });
 });
 
 test('run() round-trips through the browser and replays results as events', async () => {

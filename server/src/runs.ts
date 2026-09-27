@@ -25,6 +25,7 @@ export class Run {
   private error: string | null = null;
   private readonly buffer: RunStreamEvent[] = [];
   private readonly listeners = new Set<Listener>();
+  private readonly subscriberWaiters = new Set<() => void>();
   private readonly pending = new Map<string, PendingExec>();
   private readonly cts = new CancellationTokenSource();
 
@@ -52,7 +53,24 @@ export class Run {
   subscribe(listener: Listener): () => void {
     for (const e of this.buffer) { listener(e); }
     this.listeners.add(listener);
+    for (const wake of this.subscriberWaiters) { wake(); }
+    this.subscriberWaiters.clear();
     return () => { this.listeners.delete(listener); };
+  }
+
+  /**
+   * Resolve true once someone is subscribed (immediately if already), or false after
+   * timeoutMs. The browser opens the stream only after it has the run id, so core may
+   * ask for the relay a moment before anyone is listening.
+   */
+  waitForSubscriber(timeoutMs: number): Promise<boolean> {
+    if (this.listeners.size > 0) { return Promise.resolve(true); }
+    return new Promise((resolve) => {
+      const wake = () => { clearTimeout(timer); resolve(true); };
+      const timer = setTimeout(() => { this.subscriberWaiters.delete(wake); resolve(false); }, timeoutMs);
+      timer.unref();
+      this.subscriberWaiters.add(wake);
+    });
   }
 
   succeed(result: { record?: IssueRecord | null; proposal?: Proposal | null }): void {
