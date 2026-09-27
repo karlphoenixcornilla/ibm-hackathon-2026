@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "stage-dedupe.schema.json",
+  "title": "Provider stage output: dedupe",
+  "type": "object",
+  "required": ["same_bug", "reason"],
+  "properties": {
+    "same_bug": { "type": "boolean" },
+    "reason": { "type": "string" }
+  }
+}

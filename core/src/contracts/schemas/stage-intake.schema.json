@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "stage-intake.schema.json",
+  "title": "Provider stage output: intake",
+  "type": "object",
+  "required": ["fingerprint", "attempt_possible", "missing", "question"],
+  "properties": {
+    "fingerprint": {
+      "type": "object",
+      "required": ["platform", "component", "functions", "symptom", "trigger", "expected", "actual", "error_signature"],
+      "properties": {
+        "platform": { "type": "string" },
+        "component": { "type": "string" },
+        "functions": { "type": "array", "items": { "type": "string" } },
+        "symptom": { "type": "string" },
+        "trigger": { "type": "string" },
+        "expected": { "type": "string" },
+        "actual": { "type": "string" },
+        "error_signature": { "type": "string" }
+      }
+    },
+    "attempt_possible": { "type": "boolean" },
+    "missing": { "type": "array", "items": { "type": "string" } },
+    "question": { "type": "string" }
+  }
+}

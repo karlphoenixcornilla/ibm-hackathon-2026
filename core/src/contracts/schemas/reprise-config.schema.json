@@ -1,0 +1,105 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "reprise-config.schema.json",
+  "title": ".reprise.yml v3",
+  "description": "Configuration file for Reprise — lives at the root of each target repository.",
+  "type": "object",
+  "required": ["version", "platforms"],
+  "properties": {
+    "version": { "type": "integer", "const": 3 },
+    "issues": {
+      "type": "object",
+      "properties": {
+        "labels": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "components": { "type": "array", "items": { "type": "string" } },
+    "defaults": {
+      "type": "object",
+      "properties": {
+        "executor": { "type": "string", "enum": ["local", "ci"] },
+        "trials": {
+          "oneOf": [
+            { "type": "integer", "minimum": 1 },
+            {
+              "type": "object",
+              "required": ["min", "max"],
+              "properties": {
+                "min": { "type": "integer", "minimum": 1 },
+                "max": { "type": "integer", "minimum": 1 },
+                "limit": { "type": "integer", "minimum": 1 },
+                "max_minutes": { "type": ["integer", "null"] }
+              }
+            }
+          ]
+        },
+        "max_test_attempts": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "fix": {
+      "type": "object",
+      "properties": {
+        "candidates": { "type": "integer", "minimum": 1 },
+        "quick_runs": { "type": "integer", "minimum": 1 },
+        "max_rounds": { "type": "integer", "minimum": 1 },
+        "candidate_executor": { "type": "string", "enum": ["auto", "ci", "local"] },
+        "draft_pr": { "type": "boolean" },
+        "self_review": { "type": "boolean" }
+      }
+    },
+    "verify": {
+      "type": "object",
+      "properties": {
+        "min_runs": { "type": "integer" },
+        "max_runs": { "type": "integer" },
+        "regression_reruns": { "type": "integer" }
+      }
+    },
+    "edit_scope": {
+      "type": "object",
+      "properties": {
+        "test": { "type": "array", "items": { "type": "string" } },
+        "fix": { "type": "array", "items": { "type": "string" } },
+        "never": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "platforms": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "shell": { "type": "string" },
+          "cwd": { "type": "string" },
+          "prereq": { "type": "array", "items": { "type": "string" } },
+          "build": { "type": "string" },
+          "test": {
+            "type": "object",
+            "required": ["pattern", "single", "all", "report", "report_path"],
+            "properties": {
+              "pattern": { "type": "string" },
+              "single": { "type": "string" },
+              "all": { "type": "string" },
+              "report": { "type": "string" },
+              "report_path": { "type": "string" }
+            }
+          },
+          "lint": { "type": "string" },
+          "run_timeout_seconds": { "type": "integer", "minimum": 1 },
+          "trials": { "type": "object" },
+          "driver": {
+            "type": "object",
+            "required": ["name", "appium_port", "capabilities"],
+            "properties": {
+              "name": { "type": "string" },
+              "appium_port": { "type": "integer" },
+              "capabilities": { "type": "object" }
+            }
+          },
+          "device": { "type": "string" },
+          "env_remove": { "type": "array", "items": { "type": "string" } },
+          "env_keep": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    }
+  }
+}

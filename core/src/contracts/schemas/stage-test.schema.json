@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "stage-test.schema.json",
+  "title": "Provider stage output: test",
+  "type": "object",
+  "required": ["test_file", "signature", "rationale"],
+  "properties": {
+    "test_file": { "type": "string" },
+    "signature": {
+      "type": "object",
+      "required": ["kind", "pattern"],
+      "properties": {
+        "kind": { "type": "string", "enum": ["assertion_message", "error_type", "output_regex", "timeout"] },
+        "pattern": { "type": "string" }
+      }
+    },
+    "rationale": { "type": "string" }
+  }
+}
