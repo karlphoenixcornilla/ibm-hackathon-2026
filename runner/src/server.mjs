@@ -8,7 +8,7 @@ import { existsSync, readFileSync, mkdirSync, writeFileSync, unlinkSync } from '
 import { join, resolve, isAbsolute, normalize } from 'node:path';
 import { randomBytes, createHash } from 'node:crypto';
 import { homedir } from 'node:os';
-import { execSync } from 'node:child_process';
+import { execSync, execFileSync } from 'node:child_process';
 
 import { loadConfig, detectRemote, detectHead } from './config.mjs';
 import { buildEnv } from './env.mjs';
@@ -24,6 +24,9 @@ import * as adapterLinux from './adapters/linux.mjs';
 
 const RUNNER_VERSION = '0.1.0';
 const MAX_BODY_BYTES = 1_000_000; // 1 MB
+const MAX_FILE_BYTES = 1_000_000; // GET /file cap
+/** edit_scope.never when .reprise.yml doesn't set it (matches core's default). */
+const DEFAULT_NEVER_SCOPE = ['.github/**', '.reprise.yml', '.reprise/**'];
 const PAIR_CODE_EXPIRY_MS = 5 * 60 * 1000; // 5 minutes
 const MAX_WRONG_CODES = 5;
 
@@ -197,7 +200,7 @@ export async function startServer(args) {
       runner_version: RUNNER_VERSION,
       root_name: args.root.split(/[/\\]/).pop() ?? args.root,
       remote,
-      head,
+      head: detectHead(args.root), // live: the user may have committed since startup
       host_os: process.platform,
       platforms: platformCapabilities,
       busy,
@@ -275,7 +278,7 @@ export async function startServer(args) {
         runner_version: RUNNER_VERSION,
         root_name: args.root.split(/[/\\]/).pop() ?? args.root,
         remote,
-        head,
+        head: detectHead(args.root),
         host_os: process.platform,
         platforms: platformCapabilities,
       });
@@ -292,6 +295,53 @@ export async function startServer(args) {
     if (!isAuthenticated(req)) {
       console.warn(`[runner] 401 Unauthorized: ${method} ${url}`);
       json(req, res, 401, { error: 'Unauthorized: provide Authorization: Bearer <session>' });
+      return;
+    }
+
+    // ── GET /file?path=<rel>&ref=<sha> ───────────────────────────────────────
+    // Read-only view of a git-tracked file at a commit (default HEAD), so the app can show
+    // code and apply a fix against exactly what a worktree at that commit contains.
+    // Untracked files (.env and the like) are never served.
+    if (method === 'GET' && (url === '/file' || url.startsWith('/file?'))) {
+      const params = new URL(url, 'http://runner').searchParams;
+      const relPath = params.get('path') ?? '';
+      const refParam = params.get('ref') || 'HEAD';
+      if (!isSafeRelativePath(relPath) || relPath === '.git' || relPath.startsWith('.git/')) {
+        json(req, res, 400, { error: 'path must be a relative path inside the repository' });
+        return;
+      }
+      if (!/^(HEAD|[0-9a-fA-F]{7,40})$/.test(refParam)) {
+        json(req, res, 400, { error: 'ref must be HEAD or a commit sha' });
+        return;
+      }
+      const git = (/** @type {string[]} */ gitArgs, maxBuffer = 1024 * 1024) =>
+        execFileSync('git', gitArgs, { cwd: args.root, stdio: ['pipe', 'pipe', 'pipe'], maxBuffer });
+
+      let sha;
+      try {
+        sha = git(['rev-parse', '--verify', '--quiet', `${refParam}^{commit}`]).toString('utf8').trim();
+      } catch {
+        json(req, res, 404, { error: `Unknown ref ${refParam}` });
+        return;
+      }
+      // "<mode> blob <object> <size>\t<path>" for a tracked file; nothing (or a tree) otherwise.
+      const entry = git(['ls-tree', '-l', sha, '--', relPath]).toString('utf8');
+      const m = entry.match(/^\d+ blob [0-9a-f]+\s+(\d+)\t/);
+      if (!m) {
+        json(req, res, 404, { error: `${relPath} is not a tracked file at ${sha.slice(0, 12)}` });
+        return;
+      }
+      if (Number(m[1]) > MAX_FILE_BYTES) {
+        json(req, res, 413, { error: `${relPath} is larger than ${MAX_FILE_BYTES} bytes` });
+        return;
+      }
+      const bytes = git(['show', `${sha}:${relPath}`], MAX_FILE_BYTES + 1024);
+      json(req, res, 200, {
+        path: relPath,
+        ref: sha,
+        sha256: createHash('sha256').update(bytes).digest('hex'),
+        content: bytes.toString('utf8'),
+      });
       return;
     }
 
@@ -322,22 +372,37 @@ export async function startServer(args) {
         return;
       }
 
-      // Validate all file paths are approved
+      // An overlay may carry the reproduction test and the fix, so the scope is
+      // edit_scope.test ∪ edit_scope.fix, never anything in edit_scope.never.
       const config2 = loadConfig(args.root);
-      const fixScope = config2?.edit_scope?.fix ?? [];
+      const editScope = config2?.edit_scope ?? {};
+      const allowedScope = [...(editScope.test ?? []), ...(editScope.fix ?? [])];
+      const neverScope = editScope.never ?? DEFAULT_NEVER_SCOPE;
 
       for (const f of body.files) {
         if (typeof f.path !== 'string' || typeof f.content !== 'string') {
           json(req, res, 400, { error: 'Each file must have path and content' });
           return;
         }
-        if (!isInsideEditScope(f.path, fixScope)) {
-          json(req, res, 403, { error: `Path "${f.path}" is outside edit_scope.fix` });
+        if (!isSafeRelativePath(f.path)) {
+          json(req, res, 400, { error: `Path "${f.path}" must be a relative path inside the repository` });
+          return;
+        }
+        if (neverScope.length > 0 && neverScope.some((p) => globToRegExp(p).test(f.path))) {
+          json(req, res, 403, { error: `Path "${f.path}" is in edit_scope.never` });
+          return;
+        }
+        if (!isInsideEditScope(f.path, allowedScope)) {
+          json(req, res, 403, { error: `Path "${f.path}" is outside edit_scope.test and edit_scope.fix` });
           return;
         }
         const approvedHash = approvals.get(f.path);
         if (!approvedHash) {
           json(req, res, 409, { error: `File "${f.path}" has not been approved via /approve` });
+          return;
+        }
+        if (approvedHash !== createHash('sha256').update(f.content, 'utf8').digest('hex')) {
+          json(req, res, 409, { error: `Content of "${f.path}" does not match its approved SHA-256` });
           return;
         }
       }
@@ -697,7 +762,8 @@ function buildPlatformCapabilities(config) {
  */
 function isTrackedInGit(root, relPath) {
   try {
-    execSync(`git ls-files --error-unmatch -- ${relPath}`, {
+    // execFileSync, not a shell string: the path comes from the request.
+    execFileSync('git', ['ls-files', '--error-unmatch', '--', relPath], {
       cwd: root,
       stdio: ['pipe', 'pipe', 'pipe'],
     });
@@ -731,4 +797,15 @@ function globToRegExp(glob) {
 function isInsideEditScope(filePath, scope) {
   if (scope.length === 0) return true;
   return scope.some(pattern => globToRegExp(pattern).test(filePath));
+}
+
+/**
+ * A repository-relative path that cannot escape the root: forward slashes only,
+ * not absolute, no drive letter, no "." or ".." segments.
+ * @param {string} p
+ * @returns {boolean}
+ */
+function isSafeRelativePath(p) {
+  if (!p || p.includes('\\') || p.startsWith('/') || /^[A-Za-z]:/.test(p)) return false;
+  return p.split('/').every((seg) => seg !== '' && seg !== '.' && seg !== '..');
 }

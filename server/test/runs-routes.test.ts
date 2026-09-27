@@ -5,6 +5,8 @@ import { assertMatches } from './helpers/openapi';
 import { RunRegistry } from '../src/runs';
 import type { RunStreamEvent } from '../src/api/types';
 
+const STATUS = { remote: 'https://github.com/o/r.git', head: 'f'.repeat(40), busy: false };
+
 function parseSse(body: string): RunStreamEvent[] {
   return body.split('\n\n').filter((b) => b.startsWith('data: ')).map((b) => JSON.parse(b.slice(6)) as RunStreamEvent);
 }
@@ -55,7 +57,16 @@ test('relay round trip over real HTTP: exec.request → POST result → run fini
         const e = JSON.parse(block.slice(6)) as RunStreamEvent;
         assertMatches('RunStreamEvent', e);
         seen.push(e);
+        if (e.type === 'runner.request') {
+          assert.deepEqual(e.call, { method: 'GET', path: '/status' });
+          const url = `${base}/api/runs/${runId}/exec/${e.reqId}`;
+          const wrongKind = await fetch(url, { method: 'POST', headers: json, body: JSON.stringify({ ok: true, results: [] }) });
+          assert.equal(wrongKind.status, 400, 'a runner.request needs { ok, status, body }');
+          const post = await fetch(url, { method: 'POST', headers: json, body: JSON.stringify({ ok: true, status: 200, body: STATUS }) });
+          assert.equal(post.status, 204);
+        }
         if (e.type === 'exec.request') {
+          assert.deepEqual(e.request.ref, { head: STATUS.head }, 'nothing staged → HEAD worktree');
           const url = `${base}/api/runs/${runId}/exec/${e.reqId}`;
           const post = await fetch(url, { method: 'POST', headers: json, body: JSON.stringify({ ok: true, results: [] }) });
           assert.equal(post.status, 204);
@@ -64,7 +75,7 @@ test('relay round trip over real HTTP: exec.request → POST result → run fini
         }
       }
     }
-    assert.ok(seen.some((e) => e.type === 'exec.request'));
+    assert.deepEqual(seen.filter((e) => e.type.endsWith('.request')).map((e) => e.type), ['runner.request', 'exec.request']);
     assert.equal(seen.at(-1)!.type, 'run.done');
   } finally {
     await app.close();
@@ -79,9 +90,13 @@ test('relay error result fails the run', async () => {
   const ack = await app.inject({ method: 'POST', url: '/api/repos/o/r/issues/7/acknowledge', headers: { cookie }, payload: {} });
   const runId = ack.json().runId as string;
 
-  // Stand in for the browser: watch the run for its exec.request.
+  // Stand in for the browser: answer the runner connection, then fail the test run.
   const reqId = await new Promise<string>((resolve) => {
-    runs.get(runId, sessionId)!.subscribe((e) => { if (e.type === 'exec.request') { resolve(e.reqId); } });
+    const run = runs.get(runId, sessionId)!;
+    run.subscribe((e) => {
+      if (e.type === 'runner.request') { run.settleExec(e.reqId, { ok: true, status: 200, body: STATUS }); }
+      if (e.type === 'exec.request') { resolve(e.reqId); }
+    });
   });
   const post = await app.inject({
     method: 'POST', url: `/api/runs/${runId}/exec/${reqId}`, headers: { cookie }, payload: { ok: false, error: 'runner offline' },

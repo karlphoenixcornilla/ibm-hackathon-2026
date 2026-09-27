@@ -2,8 +2,9 @@
 
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { AppContext } from '../app';
-import type { AcknowledgeRequest, PrRequest, RunAccepted, RunKind } from '../api/types';
+import type { AcknowledgeRequest, CheckRequest, PrRequest, RunAccepted, RunKind } from '../api/types';
 import { NotImplementedError } from '../handlers';
+import type { RelayExecutor } from '../relay-executor';
 import type { Run } from '../runs';
 import { requireSession } from '../session';
 import type { Session } from '../session';
@@ -69,7 +70,10 @@ export async function issueRoutes(app: FastifyInstance, ctx: AppContext): Promis
     const issue = req.params.n;
     const trials = req.body?.trials;
     return reply.code(202).send(start(session, 'acknowledge', repo, issue, async (run) => {
-      const core = ctx.coreFactory({ token: session.token, repo, run });
+      // A fresh acknowledge starts from nothing staged: the generated test lands here.
+      const stage = ctx.staging.reset(repo, issue);
+      const runner = await ctx.connectRunner?.(run, repo, stage);
+      const core = ctx.coreFactory({ token: session.token, repo, run, runner });
       await core.config.load();
       const res = await core.pipeline.acknowledge(repo, issue, trials, run.token);
       if (res.ok) { run.succeed({ record: res.value }); } else { run.fail(res.error); }
@@ -84,6 +88,27 @@ export async function issueRoutes(app: FastifyInstance, ctx: AppContext): Promis
       const core = ctx.coreFactory({ token: session.token, repo, run });
       await core.config.load();
       run.succeed({ proposal: await ctx.propose.propose({ core, repo, issue, token: session.token }) });
+    }));
+  });
+
+  app.post<{ Params: IssueParams; Body: CheckRequest }>('/api/repos/:owner/:repo/issues/:n/check', {
+    schema: {
+      params: issueParams,
+      body: { type: 'object', required: ['diff'], properties: { diff: { type: 'string', minLength: 1 } } },
+    },
+  }, async (req, reply) => {
+    const session = requireSession(req);
+    const repo = repoOf(req.params);
+    const issue = req.params.n;
+    const diff = req.body.diff;
+    return reply.code(202).send(start(session, 'check', repo, issue, async (run) => {
+      const runner = await ctx.connectRunner?.(run, repo, ctx.staging.for(repo, issue));
+      const core = ctx.coreFactory({ token: session.token, repo, run, runner });
+      await core.config.load();
+      const executor = core.executors.local as RelayExecutor;
+      run.succeed({
+        check: await ctx.check.check({ core, repo, issue, token: session.token, diff, runner, executor, cancel: run.token }),
+      });
     }));
   });
 

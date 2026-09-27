@@ -1,18 +1,27 @@
-// runs.ts — long-running operations (acknowledge / propose) and their event streams.
+// runs.ts — long-running operations (acknowledge / propose / check) and their event streams.
 // A Run buffers every RunStreamEvent so a late SSE subscriber sees the full history,
-// and holds the relay's pending exec requests (see relay-executor.ts).
+// and holds the relay's pending requests: test runs (exec.request) and other runner
+// calls (runner.request) that the browser performs against its paired runner.
 
 import { randomUUID } from 'node:crypto';
 import { CancellationTokenSource } from '@reprise/core';
 import type { CancellationToken, IssueRecord, RunRequest, RunResult } from '@reprise/core';
-import type { ExecResult, Proposal, RunKind, RunState, RunStatus, RunStreamEvent } from './api/types';
+import type {
+  ExecResult, LocalCheck, Proposal, RunKind, RunnerCall, RunnerResponse, RunState, RunStatus, RunStreamEvent,
+} from './api/types';
 
 type Listener = (e: RunStreamEvent) => void;
 
-interface PendingExec {
-  resolve(results: RunResult[]): void;
+type RelayKind = 'exec' | 'runner';
+
+interface PendingRelay {
+  kind: RelayKind;
+  resolve(value: unknown): void;
   reject(err: Error): void;
 }
+
+/** What settleExec made of an answer: applied, no such pending request, or the wrong kind of answer. */
+export type SettleOutcome = 'ok' | 'unknown' | 'invalid';
 
 export class Run {
   readonly id = randomUUID();
@@ -22,11 +31,12 @@ export class Run {
   private readonly startedAt: string;
   private record: IssueRecord | null = null;
   private proposal: Proposal | null = null;
+  private check: LocalCheck | null = null;
   private error: string | null = null;
   private readonly buffer: RunStreamEvent[] = [];
   private readonly listeners = new Set<Listener>();
   private readonly subscriberWaiters = new Set<() => void>();
-  private readonly pending = new Map<string, PendingExec>();
+  private readonly pending = new Map<string, PendingRelay>();
   private readonly cts = new CancellationTokenSource();
 
   constructor(
@@ -72,10 +82,11 @@ export class Run {
     });
   }
 
-  succeed(result: { record?: IssueRecord | null; proposal?: Proposal | null }): void {
+  succeed(result: { record?: IssueRecord | null; proposal?: Proposal | null; check?: LocalCheck | null }): void {
     if (this.finished) { return; }
     this.record = result.record ?? this.record;
     this.proposal = result.proposal ?? this.proposal;
+    this.check = result.check ?? this.check;
     this.finish('succeeded');
   }
 
@@ -95,8 +106,43 @@ export class Run {
 
   /** Ask the browser to execute a RunRequest on the local runner; resolve with its results. */
   requestExec(request: RunRequest, timeoutMs: number, token?: CancellationToken): Promise<RunResult[]> {
+    return this.relay<RunResult[]>('exec', (reqId) => ({ type: 'exec.request', reqId, request }), timeoutMs, token);
+  }
+
+  /** Ask the browser to make one call to its paired runner; resolve with the HTTP status and body. */
+  requestRunner(call: RunnerCall, timeoutMs: number, token?: CancellationToken): Promise<RunnerResponse> {
+    return this.relay<RunnerResponse>('runner', (reqId) => ({ type: 'runner.request', reqId, call }), timeoutMs, token);
+  }
+
+  /** Deliver the browser's answer to a relay request. */
+  settleExec(reqId: string, result: ExecResult): SettleOutcome {
+    const p = this.pending.get(reqId);
+    if (!p) { return 'unknown'; }
+    let value: unknown;
+    if (!result.ok) {
+      this.pending.delete(reqId);
+      p.reject(new Error(result.error));
+      return 'ok';
+    } else if (p.kind === 'exec' && 'results' in result) {
+      value = result.results;
+    } else if (p.kind === 'runner' && 'status' in result) {
+      value = { status: result.status, body: result.body } satisfies RunnerResponse;
+    } else {
+      return 'invalid';
+    }
+    this.pending.delete(reqId);
+    p.resolve(value);
+    return 'ok';
+  }
+
+  private relay<T>(
+    kind: RelayKind,
+    makeEvent: (reqId: string) => RunStreamEvent,
+    timeoutMs: number,
+    token?: CancellationToken,
+  ): Promise<T> {
     const reqId = randomUUID();
-    return new Promise<RunResult[]>((resolve, reject) => {
+    return new Promise<T>((resolve, reject) => {
       const timer = setTimeout(() => {
         if (this.pending.delete(reqId)) {
           cancelSub?.dispose();
@@ -112,20 +158,12 @@ export class Run {
       });
       const cleanup = () => { clearTimeout(timer); cancelSub?.dispose(); };
       this.pending.set(reqId, {
-        resolve: (r) => { cleanup(); resolve(r); },
+        kind,
+        resolve: (v) => { cleanup(); resolve(v as T); },
         reject: (e) => { cleanup(); reject(e); },
       });
-      this.emit({ type: 'exec.request', reqId, request });
+      this.emit(makeEvent(reqId));
     });
-  }
-
-  /** Deliver the browser's answer. False if reqId is unknown or already settled. */
-  settleExec(reqId: string, result: ExecResult): boolean {
-    const p = this.pending.get(reqId);
-    if (!p) { return false; }
-    this.pending.delete(reqId);
-    if (result.ok) { p.resolve(result.results); } else { p.reject(new Error(result.error)); }
-    return true;
   }
 
   status(): RunStatus {
@@ -139,6 +177,7 @@ export class Run {
       finished_at: this.finishedAtMs === null ? null : new Date(this.finishedAtMs).toISOString(),
       record: this.record,
       proposal: this.proposal,
+      check: this.check,
       error: this.error,
     };
   }

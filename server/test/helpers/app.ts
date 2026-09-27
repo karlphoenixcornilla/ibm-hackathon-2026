@@ -3,11 +3,17 @@ import type { FastifyInstance } from 'fastify';
 import { buildApp } from '../../src/app';
 import type { AppOptions } from '../../src/app';
 import { loadConfig } from '../../src/config';
-import { MockWorld, mockPrHandler, mockProposeHandler, mockValidateToken } from '../../src/mock';
+import { MockWorld, mockCheckHandler, mockPrHandler, mockProposeHandler, mockValidateToken } from '../../src/mock';
 import type { MockOptions } from '../../src/mock';
 import { mockCoreFactory } from '../../src/core-factory';
+import { connectRunner } from '../../src/repo-context';
 import type { RunStatus } from '../../src/api/types';
 
+/**
+ * A mock-mode app. With `world.relay`, runs also connect to a runner through the relay
+ * (GET /status, no same-repo check) and acknowledge sends one exec.request, as in
+ * REPRISE_MOCK_RELAY=1.
+ */
 export async function mockApp(overrides: Partial<AppOptions> = {}, world: MockOptions = {}): Promise<FastifyInstance> {
   const config = { ...loadConfig({ REPRISE_MOCK: '1' }), relayTimeoutMs: 5000 };
   return buildApp({
@@ -16,6 +22,10 @@ export async function mockApp(overrides: Partial<AppOptions> = {}, world: MockOp
     validateToken: mockValidateToken,
     propose: mockProposeHandler,
     pr: mockPrHandler,
+    check: mockCheckHandler,
+    connectRunner: world.relay
+      ? (run, repo, stage) => connectRunner(run, repo, stage, { graceMs: 5000, timeoutMs: 5000, checkRepo: false })
+      : undefined,
     logger: false,
     ...overrides,
   });

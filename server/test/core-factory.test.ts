@@ -45,3 +45,27 @@ test('mock acknowledge emits progress and stores a record', async () => {
   const again = await later.store.load('demo-owner/demo-app', 7);
   assert.ok(again.ok && again.value, 'record visible to later requests');
 });
+
+test('with a runner context, core reads the local clone through the relay and stages writes', async () => {
+  const { RunnerRelay } = await import('../src/runner-relay');
+  const { StagedFiles } = await import('../src/staging');
+  const { answerRelay } = await import('./helpers/fake-browser');
+  const run = new RunRegistry().create('s', 'acknowledge', 'acme/calc', 1);
+  const head = 'd'.repeat(40);
+  const browser = answerRelay(run, {
+    runner: () => ({ status: 200, body: { path: '.reprise.yml', ref: head, sha256: 'x', content: 'version: 3\nissues:\n  labels: [crash]\n' } }),
+  });
+  const stage = new StagedFiles();
+  const core = realCoreFactory(1000)({
+    token: 'tok', repo: 'acme/calc', run,
+    runner: { relay: new RunnerRelay(run, 1000), head, remote: 'https://github.com/acme/calc', stage },
+  });
+  const cfg = await core.config.load();
+  assert.ok(cfg.ok, cfg.ok ? '' : cfg.error);
+  assert.deepEqual(cfg.value.issues.labels, ['crash']);
+  assert.deepEqual(browser.log, [{ kind: 'runner', call: { method: 'GET', path: `/file?path=.reprise.yml&ref=${head}` } }]);
+
+  const written = await core.workspace.writeFile('test/x.test.js', new TextEncoder().encode('T'));
+  assert.ok(written.ok);
+  assert.equal(stage.get('test/x.test.js'), 'T');
+});

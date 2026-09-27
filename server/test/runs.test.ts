@@ -48,9 +48,9 @@ test('requestExec emits exec.request and resolves on settleExec', async () => {
   run.subscribe((e) => { if (e.type === 'exec.request') { reqId = e.reqId; } });
   const p = run.requestExec(REQ, 1000);
   assert.ok(reqId);
-  assert.equal(run.settleExec(reqId, { ok: true, results: [RESULT] }), true);
+  assert.equal(run.settleExec(reqId, { ok: true, results: [RESULT] }), 'ok');
   assert.deepEqual(await p, [RESULT]);
-  assert.equal(run.settleExec(reqId, { ok: true, results: [] }), false, 'second settle is rejected');
+  assert.equal(run.settleExec(reqId, { ok: true, results: [] }), 'unknown', 'second settle is rejected');
 });
 
 test('requestExec rejects on an error result, on timeout, and on cancel', async () => {
@@ -87,4 +87,40 @@ test('sweep drops finished runs older than the retention window', () => {
   reg.sweep();
   assert.equal(reg.get(done.id, 's'), undefined);
   assert.equal(reg.get(live.id, 's'), live);
+});
+
+test('requestRunner emits runner.request and resolves with the runner response', async () => {
+  const run = new RunRegistry().create('s', 'check', 'o/r', 7);
+  const calls: RunStreamEvent[] = [];
+  run.subscribe((e) => calls.push(e));
+  const p = run.requestRunner({ method: 'GET', path: '/status' }, 1000);
+  const ev = calls.find((e) => e.type === 'runner.request');
+  if (ev?.type !== 'runner.request') { assert.fail('no runner.request'); }
+  assert.deepEqual(ev.call, { method: 'GET', path: '/status' });
+  assert.equal(run.settleExec(ev.reqId, { ok: true, status: 404, body: { error: 'nope' } }), 'ok');
+  assert.deepEqual(await p, { status: 404, body: { error: 'nope' } });
+});
+
+test('an answer of the wrong kind is invalid and leaves the request pending', async () => {
+  const run = new RunRegistry().create('s', 'check', 'o/r', 7);
+  const ids: Record<string, string> = {};
+  run.subscribe((e) => { if (e.type === 'exec.request' || e.type === 'runner.request') { ids[e.type] = e.reqId; } });
+  const exec = run.requestExec(REQ, 1000);
+  const call = run.requestRunner({ method: 'GET', path: '/status' }, 1000);
+  assert.equal(run.settleExec(ids['exec.request']!, { ok: true, status: 200, body: {} }), 'invalid');
+  assert.equal(run.settleExec(ids['runner.request']!, { ok: true, results: [] }), 'invalid');
+  assert.equal(run.settleExec(ids['exec.request']!, { ok: true, results: [RESULT] }), 'ok');
+  assert.equal(run.settleExec(ids['runner.request']!, { ok: false, error: 'runner offline' }), 'ok');
+  assert.deepEqual(await exec, [RESULT]);
+  await assert.rejects(call, /runner offline/);
+});
+
+test('succeed records a local check', () => {
+  const run = new RunRegistry().create('s', 'check', 'o/r', 7);
+  const check = {
+    base_sha: 'abc', overlay_id: 'ov', files: [], regression: null, verdict: 'FIX_VERIFIED' as const,
+    repro: { test_file: 't', runs: 1, failed: 0, fixed: true },
+  };
+  run.succeed({ check });
+  assert.deepEqual(run.status().check, check);
 });
