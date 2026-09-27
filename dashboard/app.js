@@ -22,7 +22,10 @@ function link(text, href, className) {
 }
 function routeFor(issue) { return `#/r/${issue.repo}/issues/${issue.issue}`; }
 function verdict(state) {
-  const tone = ['FIX_VERIFIED', 'RESOLVED'].includes(state) ? 'good' : ['CONFIRMED', 'FIX_INCOMPLETE', 'REGRESSION_DETECTED'].includes(state) ? 'bad' : state === 'FLAKY' ? 'mixed' : '';
+  const tone = ['FIX_VERIFIED', 'RESOLVED'].includes(state) ? 'good'
+    : ['CONFIRMED', 'FIX_INCOMPLETE', 'REGRESSION_DETECTED', 'ERROR'].includes(state) ? 'bad'
+    : ['FLAKY', 'NEEDS_INFO', 'BLOCKED_ENV'].includes(state) ? 'mixed'
+    : ['REPLICATING', 'FIXING', 'VERIFYING'].includes(state) ? 'info' : '';
   return el('span', names[state] || 'Unknown result', `verdict ${tone}`);
 }
 function strip(sequence, mini = false) {
@@ -41,13 +44,14 @@ function strip(sequence, mini = false) {
     if (mini && i >= 20) return;
     const cell = el('span', undefined, `cell ${c === 'F' ? 'failed' : c === 'P' ? '' : 'invalid'}`);
     cell.title = label;
-    cell.tabIndex = 0;
+    if (!mini) cell.tabIndex = 0;
     cell.setAttribute('aria-label', label);
     cell.addEventListener('focus', () => { caption.textContent = label; });
     cell.addEventListener('blur', () => { caption.textContent = mini ? '' : summary; });
     cells.append(cell);
   });
-  const caption = el('p', mini ? '' : summary, 'strip-caption');
+  const miniCaption = `${runs.filter(c => c === 'F').length}/${runs.length} reproduced${runs.length > 20 ? ' · First 20 shown' : ''}`;
+  const caption = el('p', mini ? miniCaption : summary, 'strip-caption');
   caption.setAttribute('aria-live', 'polite');
   wrapper.append(cells, list, caption);
   return wrapper;
@@ -110,7 +114,23 @@ function verificationView(iteration) {
 }
 async function overview(view) {
   document.title = 'Reports | Reprise';
-  view.append(el('h1', 'Every result, backed by runs.'), el('p', 'See what reproduced, what changed, and whether the fix held.', 'intro'));
+  const hero = el('header', undefined, 'overview-hero');
+  const title = el('h1', 'Every result, ');
+  title.append(el('span', 'backed by runs.'));
+  hero.append(el('p', 'Reproduction lab / Overview', 'eyebrow'), title, el('p', 'See what reproduced, what changed, and whether the fix held.', 'intro'));
+  view.append(hero);
+  const metrics = el('dl', undefined, 'metrics');
+  for (const [label, value] of [
+    ['Published reports', index.issues.length],
+    ['Fixes verified', index.totals.fixes_verified],
+    ['Platforms covered', new Set(index.issues.map(issue => issue.platform)).size],
+    ['Median time to result', `${Math.round(index.totals.median_time_to_verdict_ms / 60000)} min`],
+  ]) {
+    const metric = el('div', undefined, 'metric');
+    metric.append(el('dt', label), el('dd', value ?? 'Not recorded'));
+    metrics.append(metric);
+  }
+  view.append(metrics);
   const highlights = el('section', undefined, 'evidence');
   view.append(highlights);
   const heading = el('div', undefined, 'section-heading');
@@ -119,23 +139,42 @@ async function overview(view) {
   const output = el('div');
   const status = el('p', '', 'summary');
   status.setAttribute('role', 'status');
+  const selects = new Map();
+  const reset = el('button', 'Clear filters');
+  reset.type = 'button';
+  function clearFilters() {
+    for (const [key, select] of selects) { filters[key] = ''; select.value = ''; }
+    renderRows();
+  }
+  reset.addEventListener('click', clearFilters);
   for (const [key, title, options] of [['repo', 'Repository', index.repos], ['platform', 'Platform', [...new Set(index.issues.map(i => i.platform))]]]) {
     const label = el('label', title);
     const select = el('select');
     const all = el('option', key === 'repo' ? 'All repositories' : 'All platforms'); all.value = ''; select.append(all);
     for (const value of options) { const option = el('option', platforms[value] || value); option.value = value; select.append(option); }
     select.value = filters[key];
+    selects.set(key, select);
     select.addEventListener('change', () => { filters[key] = select.value; renderRows(); });
     label.append(select); controls.append(label);
   }
+  controls.append(reset);
   heading.append(controls); view.append(heading, output, status);
   const allRecords = await Promise.all(index.issues.map(async issue => { try { return await getRecord(issue); } catch { return null; } }));
   function renderRows() {
     const shown = index.issues.filter(i => (!filters.repo || filters.repo === i.repo) && (!filters.platform || filters.platform === i.platform));
+    reset.disabled = !filters.repo && !filters.platform;
     output.replaceChildren();
-    if (!shown.length) output.append(el('p', index.issues.length ? 'No reports match these filters.' : 'No reports yet. Reports appear here after someone acknowledges them in Reprise IDE and publishes the record.', 'empty'));
+    if (!shown.length) {
+      const empty = el('div', undefined, 'empty');
+      empty.append(el('h3', index.issues.length ? 'No matching reports' : 'Your reports will appear here'), el('p', index.issues.length ? 'Try another repository or platform, or clear the filters above.' : 'Acknowledge a report in Reprise IDE and publish its record to see reproduction evidence here.'));
+      if (!index.issues.length) empty.append(link('Open Reprise IDE', 'ide/', 'button primary'));
+      output.append(empty);
+    }
     else {
       const scroll = el('div', undefined, 'table-scroll');
+      scroll.tabIndex = 0;
+      scroll.setAttribute('role', 'region');
+      scroll.setAttribute('aria-label', 'Reports. Scroll horizontally to view all columns.');
       const table = el('table');
       table.append(el('caption', 'Bug reports and reproduction results', 'sr-only'));
       const head = el('thead'); const header = el('tr');
@@ -148,7 +187,8 @@ async function overview(view) {
         if (issue.stubbed) title.append(el('span', 'Stub response', 'badge'));
         const result = el('td'); result.append(verdict(issue.state));
         const trials = el('td'); trials.append(strip(issue.sequence, true));
-        row.append(el('td', `#${issue.issue}`), title, el('td', platforms[issue.platform] || issue.platform), el('td', runLocation(allRecords[index.issues.indexOf(issue)])), result, trials);
+        const record = allRecords[index.issues.indexOf(issue)];
+        row.append(el('td', `#${issue.issue}`), title, el('td', platforms[issue.platform] || issue.platform), el('td', record ? runLocation(record) : 'Details unavailable'), result, trials);
         body.append(row);
       }
       table.append(body); scroll.append(table); output.append(scroll);
@@ -157,7 +197,7 @@ async function overview(view) {
   }
   const latest = allRecords.filter(r => r?.fix?.iterations?.some(i => i.verification)).sort((a, b) => b.updated_at.localeCompare(a.updated_at))[0];
   if (latest) {
-    highlights.append(el('h2', 'Latest verified report'), link(`#${latest.issue} ${latest.title}`, routeFor(latest)), stripRow('Before', latest.replication.repro.sequence));
+    highlights.append(el('h2', 'Latest verification evidence'), link(`#${latest.issue} ${latest.title}`, routeFor(latest)), stripRow('Before', latest.replication?.repro?.sequence));
     const result = latest.fix.iterations.at(-1)?.verification?.repro;
     if (result && result.failed === 0 && result.invalid === 0 && result.runs > 0 && result.runs <= 100) highlights.append(stripRow('After', 'P'.repeat(result.runs)));
     else highlights.append(el('p', 'See the report for verification counts.'));
@@ -183,26 +223,72 @@ async function detail(view, issue) {
   if (iteration?.pr?.startsWith('https://github.com/')) fix.append(link('View pull request', iteration.pr));
   const timeline = section('Timeline'); const events = el('ol', undefined, 'timeline');
   for (const event of [...(record.events || [])].sort((a, b) => a.at.localeCompare(b.at))) events.append(el('li', `${new Date(event.at).toLocaleString()} · ${event.detail}`));
-  timeline.append(events);
+  timeline.append(events.children.length ? events : el('p', 'No activity recorded yet.'));
   view.append(reproduction, diagnosis, fix, verificationView(iteration), timeline);
 }
 function howItWorks(view) {
   document.title = 'How it works | Reprise';
-  view.append(el('h1', 'From bug report to evidence.'), el('p', 'Reprise repeats a reported bug, helps propose a fix, and checks what changed.', 'intro'));
+  const hero = el('header', undefined, 'overview-hero guide-hero');
+  const title = el('h1', 'From bug report ');
+  title.append(el('span', 'to evidence.'));
+  hero.append(el('p', 'The Reprise workflow', 'eyebrow'), title, el('p', 'Reprise repeats a reported bug, helps propose a fix, and checks what changed.', 'intro'));
+  view.append(hero);
   const steps = el('ol', undefined, 'steps');
-  for (const [title, text] of [['Acknowledge', 'Choose a report and confirm that Reprise should investigate it.'], ['Replicate', 'Run the reproduction test repeatedly on the affected platform. Each trial becomes one cell in the evidence strip.'], ['Help fix', 'Review the diagnosis and proposed change before applying it.'], ['Prove the fix', 'Repeat the test after the change and check the wider test suite for regressions.']]) {
-    const item = el('li'); item.append(el('h2', title), el('p', text)); steps.append(item);
+  steps.setAttribute('aria-label', 'Four steps from report to verified fix');
+  const stages = [
+    ['Acknowledge', 'Choose a report and confirm that Reprise should investigate it.', 'Start with a report', 'M8 3h8v4H8z M8 5H5v16h14V5h-3 M9 14l2 2 4-4'],
+    ['Replicate', 'Run the reproduction test repeatedly on the affected platform. Each trial becomes one cell in the evidence strip.', 'Make the bug repeatable', 'M20 7v5h-5 M4 17v-5h5 M6 7a7 7 0 0 1 12-1l2 3 M4 15l2 3a7 7 0 0 0 12-1'],
+    ['Help fix', 'Review the diagnosis and proposed change before applying it.', 'Keep the developer in control', 'm8 7-5 5 5 5 M16 7l5 5-5 5 M14 4l-4 16'],
+    ['Prove the fix', 'Repeat the test after the change and check the wider test suite for regressions.', 'Back the result with evidence', 'm12 3 8 3v6c0 5-8 9-8 9s-8-4-8-9V6l8-3Z M8 12l3 3 5-6'],
+  ];
+  for (const [title, text, outcome, path] of stages) {
+    const item = el('li');
+    const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    icon.setAttribute('viewBox', '0 0 24 24');
+    icon.setAttribute('class', 'step-icon');
+    icon.setAttribute('aria-hidden', 'true');
+    const drawing = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    drawing.setAttribute('d', path);
+    icon.append(drawing);
+    item.append(icon, el('h2', title), el('p', text), el('span', outcome, 'step-outcome'));
+    steps.append(item);
   }
-  view.append(steps, el('p', 'Reprise IDE runs in Google Chrome and Microsoft Edge on desktop.'), link('Open Reprise IDE', 'ide/'));
+  const evidence = el('section', undefined, 'guide-evidence');
+  const explanation = el('div', undefined, 'guide-explanation');
+  explanation.append(el('p', 'Read the evidence', 'eyebrow'), el('h2', 'A clearer picture, one run at a time.'), el('p', 'Each box represents a test run. Compare the reproduction results before and after a change, then review the regression checks in the report.'), link('Explore the reports', '#/', 'button'));
+  const example = el('div', undefined, 'guide-example');
+  example.append(el('h3', 'Before and after'), el('p', 'Illustrative example, not a live result.', 'meta'), stripRow('Before', 'PPFPPFPPFPPP'), stripRow('After', 'PPPPPPPPPPPP'), legend());
+  evidence.append(explanation, example);
+  const cta = el('section', undefined, 'guide-cta');
+  const ctaText = el('div');
+  ctaText.append(el('h2', 'Ready to investigate your next bug?'), el('p', 'Open Reprise IDE to choose a report and start the workflow.'), el('p', 'Available in Google Chrome and Microsoft Edge on desktop.', 'meta'));
+  cta.append(ctaText, link('Open Reprise IDE ↗', 'ide/', 'button primary'));
+  view.append(steps, evidence, cta);
+}
+function showError(view) {
+  const feedback = el('section', undefined, 'feedback');
+  feedback.setAttribute('role', 'alert');
+  const retry = el('button', 'Try again', 'primary');
+  retry.type = 'button';
+  retry.addEventListener('click', () => { retry.disabled = true; retry.textContent = 'Reloading...'; location.reload(); });
+  feedback.append(el('h1', 'Reports unavailable'), el('p', 'We could not load the report data. Check your connection and try again. If a deployment is in progress, wait a few minutes before retrying.'), retry, link('Back to reports', '#/', 'back'));
+  view.replaceChildren(feedback);
 }
 async function render() {
   if (location.hash === '#content') { main.focus(); return; }
   const version = ++routeVersion;
   main.setAttribute('aria-busy', 'true');
-  main.replaceChildren(el('p', 'Loading reports...', 'meta'));
+  const loading = el('p', 'Loading reports...', 'loading');
+  loading.setAttribute('role', 'status');
+  main.replaceChildren(loading);
   const view = el('div');
   try {
     const route = location.hash || '#/';
+    for (const item of document.querySelectorAll('nav a')) {
+      const active = item.getAttribute('href') === (route.startsWith('#/r/') ? '#/' : route);
+      if (active) item.setAttribute('aria-current', 'page');
+      else item.removeAttribute('aria-current');
+    }
     if (route === '#/how-it-works') howItWorks(view);
     else if (route === '#/') await overview(view);
     else {
@@ -210,7 +296,7 @@ async function render() {
       if (issue) await detail(view, issue);
       else { document.title = 'Report not found | Reprise'; view.append(el('h1', 'Report not found'), el('p', 'There is no report at this address.'), link('Go to all reports', '#/')); }
     }
-  } catch { view.replaceChildren(el('h1', 'Reports unavailable'), el('p', "The report data didn't load. Reload the page. If a deploy is in progress, it finishes within a few minutes.")); }
+  } catch { showError(view); }
   if (version !== routeVersion) return;
   main.replaceChildren(view); main.setAttribute('aria-busy', 'false');
 }
@@ -218,9 +304,9 @@ try {
   const [data, schema] = await Promise.all([readJson('data/index.json'), readJson('data/dashboard-index.schema.json')]);
   validate(data, schema); index = data;
   document.querySelector('#sample').hidden = data.data_source !== 'sample';
-  addEventListener('hashchange', render);
+  addEventListener('hashchange', async () => { await render(); main.focus({ preventScroll: true }); });
   await render();
 } catch {
-  main.replaceChildren(el('h1', 'Reports unavailable'), el('p', "The report data didn't load. Reload the page. If a deploy is in progress, it finishes within a few minutes."));
+  showError(main);
   main.setAttribute('aria-busy', 'false');
 }
