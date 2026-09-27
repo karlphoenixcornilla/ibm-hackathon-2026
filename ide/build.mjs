@@ -108,6 +108,8 @@ const manifest = readJson(path.join(EXTENSION_DIR, 'package.json'));
 delete manifest.scripts;
 delete manifest.dependencies;
 delete manifest.devDependencies;
+// vsce rejects extensionKind "web"; the `browser` entry alone makes it a web extension.
+delete manifest.extensionKind;
 manifest.browser = './extension.js';
 writeJson(path.join(stagedDir, 'package.json'), manifest);
 fs.copyFileSync(path.join(EXTENSION_DIR, 'dist', 'extension.js'), path.join(stagedDir, 'extension.js'));
