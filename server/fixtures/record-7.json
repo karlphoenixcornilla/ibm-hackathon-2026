@@ -1,0 +1,73 @@
+{
+  "schema": 3,
+  "repo": "demo-owner/demo-app",
+  "issue": 7,
+  "title": "Login crashes on Android 14 with biometric enabled",
+  "url": "https://github.com/demo-owner/demo-app/issues/7",
+  "state": "CONFIRMED",
+  "provider": "stub",
+  "stubbed": true,
+  "created_at": "2026-09-26T09:00:00Z",
+  "updated_at": "2026-09-26T09:03:00Z",
+  "replication": {
+    "verdict": "CONFIRMED",
+    "acknowledged_by": "mock-user",
+    "started_at": "2026-09-26T09:00:00Z",
+    "finished_at": "2026-09-26T09:03:00Z",
+    "duration_ms": 180000,
+    "fingerprint": {
+      "platform": "android",
+      "component": "auth",
+      "functions": ["LoginActivity.onBiometricResult"],
+      "symptom": "App closes after the biometric prompt",
+      "trigger": "Sign in with biometrics enabled on Android 14",
+      "expected": "User is signed in",
+      "actual": "NullPointerException, app exits",
+      "error_signature": "java.lang.NullPointerException at LoginActivity.onBiometricResult"
+    },
+    "duplicate": { "of": null, "score": null, "fields": {}, "reason": "", "behaviour_check": null },
+    "question": "",
+    "repro": {
+      "test_origin": "provided",
+      "test_file": "app/src/androidTest/LoginBiometricTest.kt",
+      "test_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "branch": "reprise/7-repro",
+      "signature": { "kind": "error_type", "pattern": "NullPointerException" },
+      "attempts": 1,
+      "run_context": {
+        "platform": "android",
+        "executor": "local",
+        "method": "repo_command",
+        "host_os": "linux",
+        "device": "Pixel 7 emulator (API 34)",
+        "ci_run_url": null,
+        "runner_version": "mock"
+      },
+      "trials": 10,
+      "failed": 10,
+      "invalid": 0,
+      "sequence": "FFFFFFFFFF",
+      "trials_policy": { "min": 10, "max": 20, "limit": 100, "max_minutes": null, "source": "config", "stopped_by": "all_failed_at_min" },
+      "rate": 1,
+      "wilson_low": 0.7225,
+      "wilson_high": 1
+    },
+    "diagnosis": {
+      "summary": "onBiometricResult dereferences the cached session before it is restored on a cold start, so the callback throws when Android 14 delivers the result first.",
+      "locations": [
+        { "file": "app/src/main/java/LoginActivity.kt", "start_line": 42, "end_line": 48, "reason": "session is null when the biometric callback fires before onResume" }
+      ],
+      "fix_direction": "Guard the callback until the session is restored, or restore the session before showing the prompt.",
+      "confidence": "high",
+      "accepted_by": "",
+      "edited": false
+    }
+  },
+  "fix": { "iterations": [] },
+  "resolution_note": "",
+  "usage": { "provider": "stub", "calls": 3, "by_stage": { "intake": 1, "test": 1, "rootcause": 1 } },
+  "events": [
+    { "at": "2026-09-26T09:00:00Z", "type": "acknowledged", "detail": "mock-user" },
+    { "at": "2026-09-26T09:03:00Z", "type": "verdict", "detail": "CONFIRMED 10/10" }
+  ]
+}
