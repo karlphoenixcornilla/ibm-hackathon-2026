@@ -52,6 +52,8 @@ export { createCiExecutor } from './exec/ci/index';
 export { createProviders } from './providers/index';
 export type { ProvidersOptions } from './providers/index';
 export { StubProvider } from './providers/stub-provider';
+export { AgentProvider, createAgentProvider, DEFAULT_AGENT_URL } from './providers/agent-provider';
+export type { AgentProviderOptions } from './providers/agent-provider';
 export { createPipeline } from './pipeline/index';
 export { createStats } from './stats/index';
 export { createSecurity } from './security/index';
