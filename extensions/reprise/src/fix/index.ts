@@ -1,7 +1,7 @@
 // fix/ — fix proposal, diff review, candidate filtering, PR creation
 // Owned by: T4
 // Spec: 02-specs/fix-and-verify.md §4–5
-import type * as vscode from 'vscode';
+import type * as runtime from '../contracts/runtime';
 import type { Services } from '../contracts/services';
 import type { FixService } from '../contracts/services';
 import type { IssueRecord, Candidate, FixIteration } from '../contracts/records';
@@ -10,7 +10,7 @@ import type { Result } from '../util/result';
 import { Result as R } from '../util/result';
 
 /** Minimal non-cancellable token for use when no real token is provided. */
-function neverCancelled(): vscode.CancellationToken {
+function neverCancelled(): runtime.CancellationToken {
   return { isCancellationRequested: false, onCancellationRequested: () => ({ dispose: () => undefined }) };
 }
 
@@ -66,7 +66,7 @@ class FixServiceImpl implements FixService {
   async proposeFixes(
     repo: string,
     issue: number,
-    token?: vscode.CancellationToken,
+    token?: runtime.CancellationToken,
   ): Promise<Result<IssueRecord, string>> {
     const recordResult = await this.svc.store.load(repo, issue);
     if (!recordResult.ok) { return recordResult; }
@@ -217,7 +217,7 @@ class FixServiceImpl implements FixService {
     repo: string,
     issue: number,
     candidateK: number,
-    token?: vscode.CancellationToken,
+    token?: runtime.CancellationToken,
   ): Promise<Result<IssueRecord, string>> {
     const recordResult = await this.svc.store.load(repo, issue);
     if (!recordResult.ok) { return recordResult; }
@@ -340,7 +340,7 @@ class FixServiceImpl implements FixService {
   async applySelected(
     repo: string,
     issue: number,
-    _token?: vscode.CancellationToken,
+    _token?: runtime.CancellationToken,
   ): Promise<Result<IssueRecord, string>> {
     const recordResult = await this.svc.store.load(repo, issue);
     if (!recordResult.ok) { return recordResult; }

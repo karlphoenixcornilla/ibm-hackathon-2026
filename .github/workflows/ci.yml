@@ -7,8 +7,8 @@ on:
     branches: ["main"]
 
 jobs:
-  extension:
-    name: Extension — typecheck, lint, depcheck, test
+  core:
+    name: Core — typecheck, lint, depcheck, test
     runs-on: ubuntu-latest
 
     steps:
@@ -35,6 +35,10 @@ jobs:
 
       - name: Dependency cruiser (boundary checks)
         run: npm run depcheck
+        working-directory: extensions/reprise
+
+      - name: Build core
+        run: npm run compile
         working-directory: extensions/reprise
 
       - name: Unit tests
@@ -97,6 +101,16 @@ jobs:
       - name: Runner unit tests
         run: node --test test/**/*.test.mjs
         working-directory: runner
+
+  dashboard:
+    name: Dashboard data adapters
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: node --test dashboard/test/*.test.mjs
 
   diagrams:
     name: Mermaid diagrams — parse check

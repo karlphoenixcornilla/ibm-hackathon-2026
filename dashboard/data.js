@@ -26,3 +26,15 @@ export function recordPath(issue) {
   if (parts.length !== 2 || parts.some(part => !/^[a-zA-Z0-9_-][a-zA-Z0-9_.-]*$/.test(part)) || !Number.isInteger(issue.issue) || issue.issue < 1) throw new Error('Invalid report path');
   return `data/${parts.map(encodeURIComponent).join('/')}/issues/${issue.issue}.json`;
 }
+
+/** The embedding application may provide API URLs or its own authenticated loaders.
+ * Bundled JSON is only the standalone sample preview's data source.
+ */
+export function createDataSource(options = {}) {
+  const baseUrl = options.baseUrl ?? 'data/';
+  const recordUrl = issue => `${baseUrl.replace(/\/?$/, '/')}${recordPath(issue).slice(5)}`;
+  return {
+    loadIndex: options.loadIndex ?? (() => readJson(options.indexUrl ?? `${baseUrl.replace(/\/?$/, '/')}index.json`)),
+    loadRecord: options.loadRecord ?? (issue => readJson(recordUrl(issue))),
+  };
+}

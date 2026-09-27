@@ -2,7 +2,7 @@
 // Owned by: T2
 // Spec: 02-specs/local-runner.md §Same repository check, §Stopping
 
-import * as vscode from 'vscode';
+import * as runtime from '../contracts/runtime';
 import type { Services, RunnerClientService } from '../contracts/services';
 import type {
   PairRequest,
@@ -27,9 +27,10 @@ const HEARTBEAT_MISS_LIMIT = 2;
  * Services is used for views (status bar, messages) and workspace (repo check).
  */
 export function createRunnerClient(
-  services: Omit<Services, 'runnerClient'>
+  services: Omit<Services, 'runnerClient'>,
+  startPort = RUNNER_PORT_START
 ): RunnerClientService {
-  return new RunnerClient(services);
+  return new RunnerClient(services, startPort);
 }
 
 class RunnerClient implements RunnerClientService {
@@ -40,19 +41,17 @@ class RunnerClient implements RunnerClientService {
   private missedHeartbeats = 0;
   private _paired = false;
 
-  private emitter = new vscode.EventEmitter<{ paired: boolean }>();
-  readonly onDidChangePairing: vscode.Event<{ paired: boolean }> = this.emitter.event;
+  private emitter = new runtime.EventEmitter<{ paired: boolean }>();
+  readonly onDidChangePairing: runtime.Event<{ paired: boolean }> = this.emitter.event;
 
-  constructor(private readonly services: Omit<Services, 'runnerClient'>) {}
+  constructor(private readonly services: Omit<Services, 'runnerClient'>, private readonly startPort: number) {}
 
   // ── RunnerClientService ────────────────────────────────────────────────────
 
   async pair(code: string): Promise<Result<PairResponse, string>> {
     // Probe 47410–47419 in order; use the configured port as the start if set.
     // Fix for issue #19: was hardcoded to 47410 and never probed fallback ports.
-    const startPort = vscode.workspace
-      .getConfiguration('reprise')
-      .get<number>('runnerPort', RUNNER_PORT_START);
+    const startPort = this.startPort;
     const endPort = startPort + (RUNNER_PORT_END - RUNNER_PORT_START);
 
     const body: PairRequest = { code };

@@ -1,4 +1,6 @@
-import { readJson, validate, recordPath } from './data.js';
+import { readJson, validate, recordPath, createDataSource } from './data.js';
+
+const dataSource = createDataSource(globalThis.repriseDashboard);
 
 const main = document.querySelector('main');
 const names = { LISTED: 'Not acknowledged', REPLICATING: 'Replicating', STOPPED: 'Stopped by user', CONFIRMED: 'Reproduced', FLAKY: 'Reproduced sometimes', DUPLICATE: 'Duplicate report', NEEDS_INFO: 'Needs one answer', BLOCKED_ENV: 'Test environment missing', ERROR: 'Reprise hit an error', FIXING: 'Fix in progress', FIX_ABANDONED: 'No fix proposed', VERIFYING: 'Checking fix', FIX_VERIFIED: 'Fix verified', FIX_INCOMPLETE: 'Still reproduces', REGRESSION_DETECTED: 'Fix breaks other tests', RESOLVED: 'Resolved' };
@@ -75,7 +77,7 @@ function legend() {
 async function getRecord(issue) {
   const path = recordPath(issue);
   if (!records.has(path)) {
-    const record = await readJson(path);
+    const record = await dataSource.loadRecord(issue);
     if (record.schema !== 3 || record.repo !== issue.repo || record.issue !== issue.issue) throw new Error('Invalid report');
     records.set(path, record);
   }
@@ -166,8 +168,7 @@ async function overview(view) {
     output.replaceChildren();
     if (!shown.length) {
       const empty = el('div', undefined, 'empty');
-      empty.append(el('h3', index.issues.length ? 'No matching reports' : 'Your reports will appear here'), el('p', index.issues.length ? 'Try another repository or platform, or clear the filters above.' : 'Acknowledge a report in Reprise IDE and publish its record to see reproduction evidence here.'));
-      if (!index.issues.length) empty.append(link('Open Reprise IDE', 'ide/', 'button primary'));
+      empty.append(el('h3', index.issues.length ? 'No matching reports' : 'Your reports will appear here'), el('p', index.issues.length ? 'Try another repository or platform, or clear the filters above.' : 'Acknowledge a report and publish its record to see reproduction evidence here.'));
       output.append(empty);
     }
     else {
@@ -259,11 +260,7 @@ function howItWorks(view) {
   const example = el('div', undefined, 'guide-example');
   example.append(el('h3', 'Before and after'), el('p', 'Illustrative example, not a live result.', 'meta'), stripRow('Before', 'PPFPPFPPFPPP'), stripRow('After', 'PPPPPPPPPPPP'), legend());
   evidence.append(explanation, example);
-  const cta = el('section', undefined, 'guide-cta');
-  const ctaText = el('div');
-  ctaText.append(el('h2', 'Ready to investigate your next bug?'), el('p', 'Open Reprise IDE to choose a report and start the workflow.'), el('p', 'Available in Chromium-based desktop browsers such as Chrome, Edge, Brave, Opera, Vivaldi and Arc.', 'meta'));
-  cta.append(ctaText, link('Open Reprise IDE ↗', 'ide/', 'button primary'));
-  view.append(steps, evidence, cta);
+  view.append(steps, evidence);
 }
 function showError(view) {
   const feedback = el('section', undefined, 'feedback');
@@ -301,7 +298,7 @@ async function render() {
   main.replaceChildren(view); main.setAttribute('aria-busy', 'false');
 }
 try {
-  const [data, schema] = await Promise.all([readJson('data/index.json'), readJson('data/dashboard-index.schema.json')]);
+  const [data, schema] = await Promise.all([dataSource.loadIndex(), readJson(new URL('./data/dashboard-index.schema.json', import.meta.url))]);
   validate(data, schema); index = data;
   document.querySelector('#sample').hidden = data.data_source !== 'sample';
   addEventListener('hashchange', async () => { await render(); main.focus({ preventScroll: true }); });

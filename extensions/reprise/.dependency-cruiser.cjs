@@ -1,4 +1,4 @@
-// .dependency-cruiser.cjs — boundary rules for the Reprise extension
+// .dependency-cruiser.cjs — boundary rules for the Reprise core
 // Spec: 00-base.md §B7
 //
 // Rule summary:
@@ -10,6 +10,13 @@
 /** @type {import('dependency-cruiser').IConfiguration} */
 module.exports = {
   forbidden: [
+    {
+      name: 'no-editor-runtime',
+      comment: 'Pivot #29: application services must not depend on an editor host.',
+      severity: 'error',
+      from: {},
+      to: { path: '(^|/)(vscode|@types/vscode)(/|$)' },
+    },
     // ── Cross-module imports (the main boundary rule) ────────────────────────
     // A module folder may only import contracts/, util/, or its own folder.
     // Exceptions: wiring/ and fakes/ are the composition root and test doubles.
@@ -58,14 +65,14 @@ module.exports = {
     {
       name: 'no-orphans',
       severity: 'warn',
-      from: { orphan: true, pathNot: ['\\.d\\.ts$', 'src/extension\\.ts'] },
+      from: { orphan: true, pathNot: ['\\.d\\.ts$', 'src/index\\.ts'] },
       to: {},
     },
 
     // ── No deprecated Node core modules ─────────────────────────────────────
     {
       name: 'no-deprecated-core',
-      comment: 'Web worker environment — deprecated Node built-ins are not available.',
+      comment: 'Avoid deprecated Node built-ins.',
       severity: 'warn',
       from: {},
       to: { dependencyTypes: ['core'], path: '^(domain|freelist|smalloc|sys|punycode)$' },

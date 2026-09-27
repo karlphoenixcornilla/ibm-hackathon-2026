@@ -6,7 +6,7 @@ export class FakeViews implements ViewsService {
   refreshRuns(): void { /* no-op */ }
   openPanel(_repo: string, _issue: number): void { /* no-op */ }
   setStatusBar(_text: string): void { /* no-op */ }
-  showInfo(message: string, ..._actions: string[]): Thenable<string | undefined> {
+  showInfo(message: string, ..._actions: string[]): PromiseLike<string | undefined> {
     console.info('[FakeViews] showInfo:', message);
     return Promise.resolve(undefined);
   }

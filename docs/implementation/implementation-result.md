@@ -1,3 +1,5 @@
+> Historical document: pivot #29 supersedes IDE/Code-OSS and static/Pages requirements, including work in #12, #14 and #22. See [the repository README](../../README.md) for current integration instructions.
+
 # Base Plan Implementation Result
 
 **Branch:** `feature/base-skeleton`  

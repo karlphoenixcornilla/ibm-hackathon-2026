@@ -2,7 +2,7 @@
 // Owned by: T3
 // Spec: 02-specs/ai-providers.md, ADR-4
 
-import type * as vscode from 'vscode';
+import type * as runtime from '../contracts/runtime';
 import type { Services, ProvidersService } from '../contracts/services';
 import type { Provider, StageRequest, StageResponse } from '../contracts/provider';
 import { Result as R } from '../util/result';
@@ -15,7 +15,7 @@ class UnimplementedProvider implements Provider {
   constructor(public readonly id: string) {}
   readonly capabilities = { images: false, implemented: false };
 
-  async run(_req: StageRequest, _token: vscode.CancellationToken): Promise<StageResponse> {
+  async run(_req: StageRequest, _token: runtime.CancellationToken): Promise<StageResponse> {
     throw new Error(`Provider ${this.id} is not implemented yet`);
   }
 }
@@ -28,7 +28,7 @@ class ProvidersServiceImpl implements ProvidersService {
 
   // Minimal event emitter — no vscode at construction time
   private listeners: Array<(e: { id: string }) => void> = [];
-  readonly onDidChangeProvider: vscode.Event<{ id: string }> = (
+  readonly onDidChangeProvider: runtime.Event<{ id: string }> = (
     listener: (e: { id: string }) => void
   ) => {
     this.listeners.push(listener);
@@ -68,41 +68,6 @@ class ProvidersServiceImpl implements ProvidersService {
 
 export function createProviders(services: Omit<Services, 'providers'>): ProvidersService {
   return new ProvidersServiceImpl(services.workspace);
-}
-
-/**
- * Handler for the "Reprise: Select Provider" command.
- * The command is pre-declared in package.json (base frozen).
- * Shows a quick-pick and calls providers.setActive().
- */
-export async function handleSelectProvider(
-  providers: ProvidersService,
-  vscodeApi: typeof vscode
-): Promise<void> {
-  const items = providers.list().map((p) => ({
-    label: p.id,
-    description: p.capabilities.implemented ? 'active' : 'not implemented',
-    detail: p.id === providers.getActive().id ? '$(check) Current' : undefined,
-  }));
-
-  const picked = await vscodeApi.window.showQuickPick(items, {
-    title: 'Reprise: Select Provider',
-    placeHolder: 'Choose AI provider',
-  });
-
-  if (!picked) return;
-
-  if (picked.description === 'not implemented') {
-    vscodeApi.window.showInformationMessage(
-      `Provider ${picked.label} is not implemented yet. Keeping ${providers.getActive().id}.`
-    );
-    return;
-  }
-
-  const result = providers.setActive(picked.label);
-  if (!result.ok) {
-    vscodeApi.window.showErrorMessage(`Failed to set provider: ${result.error}`);
-  }
 }
 
 // Re-export for pipeline use

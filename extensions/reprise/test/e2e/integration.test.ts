@@ -44,20 +44,20 @@ import { Result as R } from '../../src/util/result';
 import type { Executor, RunRequest, RunResult, RunEvent, Availability } from '../../src/contracts/execution';
 import type { Provider, StageRequest, StageResponse } from '../../src/contracts/provider';
 import type { ProvidersService } from '../../src/contracts/services';
-import type * as vscode from 'vscode';
+import type * as runtime from '../../src/contracts/runtime';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-const CANCEL_TOKEN: vscode.CancellationToken = {
+const CANCEL_TOKEN: runtime.CancellationToken = {
   isCancellationRequested: false,
-  onCancellationRequested: (() => ({ dispose: () => undefined })) as unknown as vscode.Event<unknown>,
+  onCancellationRequested: (() => ({ dispose: () => undefined })) as unknown as runtime.Event<unknown>,
 };
 
-/** Inline fake AuthService — avoids vscode.EventEmitter at runtime */
+/** Inline fake AuthService — avoids runtime.EventEmitter at runtime */
 class InlineAuth implements AuthService {
   private readonly token = 'fake-github-token-abc123';
   private signedIn = true;
-  readonly onDidChangeSession = (() => ({ dispose: () => undefined })) as unknown as vscode.Event<{ signedIn: boolean }>;
+  readonly onDidChangeSession = (() => ({ dispose: () => undefined })) as unknown as runtime.Event<{ signedIn: boolean }>;
 
   async signIn(): Promise<Result<string, string>> {
     this.signedIn = true;
@@ -68,10 +68,10 @@ class InlineAuth implements AuthService {
   isSignedIn(): boolean { return this.signedIn; }
 }
 
-/** Inline fake RunnerClientService — avoids vscode.EventEmitter at runtime */
+/** Inline fake RunnerClientService — avoids runtime.EventEmitter at runtime */
 class InlineRunnerClient implements RunnerClientService {
   private paired = false;
-  readonly onDidChangePairing = (() => ({ dispose: () => undefined })) as unknown as vscode.Event<{ paired: boolean }>;
+  readonly onDidChangePairing = (() => ({ dispose: () => undefined })) as unknown as runtime.Event<{ paired: boolean }>;
 
   async pair(_code: string): Promise<Result<PairResponse, string>> {
     this.paired = true;
@@ -124,7 +124,7 @@ class ScriptedExecutor implements Executor {
 
   async run(
     _req: RunRequest,
-    _token: vscode.CancellationToken,
+    _token: runtime.CancellationToken,
     onEvent: (event: RunEvent) => void
   ): Promise<RunResult[]> {
     const result = this.script.shift();
@@ -145,7 +145,7 @@ class ScriptedProvider implements Provider {
     this.responses.set(stage, [...jsons]);
   }
 
-  async run(req: StageRequest, _token: vscode.CancellationToken): Promise<StageResponse> {
+  async run(req: StageRequest, _token: runtime.CancellationToken): Promise<StageResponse> {
     const queue = this.responses.get(req.stage);
     if (!queue || queue.length === 0) {
       throw new Error(`ScriptedProvider: no stub for stage "${req.stage}"`);
@@ -165,7 +165,7 @@ class ScriptedProviders implements ProvidersService {
   getActive(): Provider { return this.provider; }
   list(): Provider[] { return [this.provider]; }
   setActive(_id: string): Result<void, string> { return R.ok(undefined); }
-  readonly onDidChangeProvider = (() => ({ dispose: () => undefined })) as unknown as vscode.Event<{ id: string }>;
+  readonly onDidChangeProvider = (() => ({ dispose: () => undefined })) as unknown as runtime.Event<{ id: string }>;
 }
 
 function makeRunResult(pass: boolean, msg = 'NullPointerException in MainActivity'): RunResult {

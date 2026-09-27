@@ -1,3 +1,5 @@
+> Historical document: pivot #29 supersedes IDE/Code-OSS and static/Pages requirements, including work in #12, #14 and #22. See [the repository README](README.md) for current integration instructions.
+
 # Verification Gates — Results
 
 Recorded during base implementation. Phase 0 gates researched; Phase 1 gates require the actual Code-OSS fork build and browser testing.

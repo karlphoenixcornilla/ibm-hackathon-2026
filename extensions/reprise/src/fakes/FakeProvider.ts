@@ -1,7 +1,7 @@
 // fakes/FakeProvider.ts — echoes fixture JSON from a hardcoded stub
 import type { ProvidersService } from '../contracts/services';
 import type { Provider, StageRequest, StageResponse } from '../contracts/provider';
-import type * as vscode from 'vscode';
+import type * as runtime from '../contracts/runtime';
 import { Result as R } from '../util/result';
 import type { Result } from '../util/result';
 
@@ -46,7 +46,7 @@ class StubProvider implements Provider {
   readonly id = 'stub';
   readonly capabilities = { images: false, implemented: true };
 
-  async run(req: StageRequest, _token: vscode.CancellationToken): Promise<StageResponse> {
+  async run(req: StageRequest, _token: runtime.CancellationToken): Promise<StageResponse> {
     const json = STUB_RESPONSES[req.stage] ?? null;
     if (json === null) {
       throw new Error(`No stub response for stage ${req.stage} on #${req.issue}`);
@@ -65,7 +65,7 @@ class UnimplementedProvider implements Provider {
   constructor(public readonly id: string) {}
   readonly capabilities = { images: false, implemented: false };
 
-  async run(_req: StageRequest, _token: vscode.CancellationToken): Promise<StageResponse> {
+  async run(_req: StageRequest, _token: runtime.CancellationToken): Promise<StageResponse> {
     throw new Error(`Provider ${this.id} is not implemented yet`);
   }
 }
@@ -82,7 +82,7 @@ export class FakeProvider implements ProvidersService {
 
   // Dummy event emitter
   private emitter = { event: (_listener: (e: { id: string }) => void) => ({ dispose: () => undefined }) };
-  readonly onDidChangeProvider = this.emitter.event as vscode.Event<{ id: string }>;
+  readonly onDidChangeProvider = this.emitter.event as runtime.Event<{ id: string }>;
 
   getActive(): Provider {
     return this.providers.find((p) => p.id === this.activeId) ?? this.providers[0]!;

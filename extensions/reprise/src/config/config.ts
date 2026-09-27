@@ -2,8 +2,7 @@
 // Fully implemented by base plan. All tracks depend on this.
 // Spec: 02-specs/reprise-config.md
 
-import * as vscode from 'vscode';
-import type { ConfigService, RepriseConfig } from '../contracts/services';
+import type { ConfigService, RepriseConfig, WorkspaceService } from '../contracts/services';
 import { Result } from '../util/result';
 
 const REPRISE_YML = '.reprise.yml';
@@ -68,23 +67,18 @@ function normaliseConfig(raw: Record<string, unknown>): RepriseConfig {
   };
 }
 
-export function createConfig(): ConfigService {
+export function createConfig(workspace: WorkspaceService): ConfigService {
   let cachedConfig: RepriseConfig | null = null;
-  let cachedUri: vscode.Uri | null = null;
+  let cachedUri: string | null = null;
 
   async function load(): Promise<Result<RepriseConfig, string>> {
-    const folders = vscode.workspace.workspaceFolders;
-    if (!folders || folders.length === 0) {
-      return Result.err('No workspace folder is open.');
-    }
-    const folder = folders[0];
-    const uri = vscode.Uri.joinPath(folder.uri, REPRISE_YML);
-
     try {
-      const bytes = await vscode.workspace.fs.readFile(uri);
+      const result = await workspace.readFile(REPRISE_YML);
+      if (!result.ok) return Result.err(result.error);
+      const bytes = result.value;
       const text = new TextDecoder().decode(bytes);
 
-      // Dynamic import of js-yaml (bundled); avoids top-level require in web worker
+      // Load the YAML parser only when configuration is requested.
       const yaml = await import('js-yaml');
       const raw = yaml.load(text) as Record<string, unknown> | null;
 
@@ -94,7 +88,7 @@ export function createConfig(): ConfigService {
 
       const config = normaliseConfig(raw);
       cachedConfig = config;
-      cachedUri = uri;
+      cachedUri = REPRISE_YML;
       return Result.ok(config);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -106,7 +100,7 @@ export function createConfig(): ConfigService {
     return cachedConfig;
   }
 
-  function getUri(): vscode.Uri | null {
+  function getUri(): string | null {
     return cachedUri;
   }
 
