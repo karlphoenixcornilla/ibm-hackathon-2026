@@ -89,12 +89,66 @@ components:
       type: object
       required: [runId]
       properties: { runId: { type: string } }
+    CheckRequest:
+      type: object
+      required: [diff]
+      properties: { diff: { type: string, minLength: 1, description: Unified diff of the fix to try locally } }
+    LocalCheck:
+      description: The fix applied on a runner worktree (overlay at base_sha) and tested there.
+      type: object
+      required: [base_sha, overlay_id, files, repro, regression, verdict]
+      properties:
+        base_sha: { type: string }
+        overlay_id: { type: string }
+        files:
+          type: array
+          items: { type: object, required: [path, sha256], properties: { path: { type: string }, sha256: { type: string } } }
+        repro:
+          type: object
+          required: [test_file, runs, failed, fixed]
+          properties:
+            test_file: { type: string }
+            runs: { type: integer }
+            failed: { type: integer }
+            fixed: { type: boolean }
+        regression:
+          oneOf:
+            - type: 'null'
+            - type: object
+              required: [tests_total, counts, blocking, notable]
+              properties:
+                tests_total: { type: integer }
+                counts: { type: object }
+                blocking: { type: array, items: { type: string } }
+                notable: { type: array, items: { type: string } }
+        verdict: { enum: [FIX_VERIFIED, FIX_INCOMPLETE, REGRESSION_DETECTED] }
+    RunnerCall:
+      description: A call the browser makes to its paired runner for the backend. Browsers must refuse anything else.
+      oneOf:
+        - type: object
+          required: [method, path]
+          properties: { method: { const: GET }, path: { type: string, pattern: '^/(status$|file\?)' } }
+        - type: object
+          required: [method, path, body]
+          properties:
+            method: { const: POST }
+            path: { enum: [/approve, /overlays] }
+            body: { type: object }
+    RunnerFile:
+      description: GET /file on the runner.
+      type: object
+      required: [path, ref, sha256, content]
+      properties:
+        path: { type: string }
+        ref: { type: string }
+        sha256: { type: string }
+        content: { type: string }
     RunStatus:
       type: object
-      required: [id, kind, state, repo, issue, started_at, finished_at, record, proposal, error]
+      required: [id, kind, state, repo, issue, started_at, finished_at, record, proposal, check, error]
       properties:
         id: { type: string }
-        kind: { enum: [acknowledge, propose] }
+        kind: { enum: [acknowledge, propose, check] }
         state: { enum: [running, succeeded, failed] }
         repo: { type: string }
         issue: { type: integer }
@@ -102,6 +156,7 @@ components:
         finished_at: { type: [string, 'null'] }
         record: { oneOf: [{ $ref: '#/components/schemas/IssueRecord' }, { type: 'null' }] }
         proposal: { oneOf: [{ $ref: '#/components/schemas/Proposal' }, { type: 'null' }] }
+        check: { oneOf: [{ $ref: '#/components/schemas/LocalCheck' }, { type: 'null' }] }
         error: { type: [string, 'null'] }
     CoreEvent:
       description: CoreEvent from core/src/contracts/services.ts.
@@ -122,6 +177,9 @@ components:
           required: [type, reqId, request]
           properties: { type: { const: exec.request }, reqId: { type: string }, request: { $ref: '#/components/schemas/RunRequest' } }
         - type: object
+          required: [type, reqId, call]
+          properties: { type: { const: runner.request }, reqId: { type: string }, call: { $ref: '#/components/schemas/RunnerCall' } }
+        - type: object
           required: [type, reqId, line]
           properties: { type: { const: exec.output }, reqId: { type: string }, line: { type: string } }
         - type: object
@@ -130,8 +188,13 @@ components:
     ExecResult:
       oneOf:
         - type: object
+          description: Answers an exec.request.
           required: [ok, results]
           properties: { ok: { const: true }, results: { type: array, items: { type: object } } }
+        - type: object
+          description: Answers a runner.request with the runner's HTTP status and JSON body.
+          required: [ok, status, body]
+          properties: { ok: { const: true }, status: { type: integer }, body: {} }
         - type: object
           required: [ok, error]
           properties: { ok: { const: false }, error: { type: string } }
@@ -205,6 +268,19 @@ paths:
     post:
       responses:
         '202': { description: Agentic proposal started; RunStatus.proposal holds the result, content: { application/json: { schema: { $ref: '#/components/schemas/RunAccepted' } } } }
+  /api/repos/{owner}/{repo}/issues/{n}/check:
+    parameters: [{ $ref: '#/components/parameters/owner' }, { $ref: '#/components/parameters/repo' }, { $ref: '#/components/parameters/n' }]
+    post:
+      description: |
+        Apply the diff on the paired runner (overlay on its HEAD, together with the staged
+        reproduction test) and run the reproduction test and, if configured, the suite there.
+        Needs the Review UI attached to the run with a paired runner. RunStatus.check holds the result.
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/CheckRequest' } } }
+      responses:
+        '202': { description: Local check started, content: { application/json: { schema: { $ref: '#/components/schemas/RunAccepted' } } } }
+        '400': { $ref: '#/components/responses/Error' }
   /api/repos/{owner}/{repo}/issues/{n}/pr:
     parameters: [{ $ref: '#/components/parameters/owner' }, { $ref: '#/components/parameters/repo' }, { $ref: '#/components/parameters/n' }]
     post:
@@ -231,10 +307,11 @@ paths:
   /api/runs/{id}/exec/{reqId}:
     parameters: [{ $ref: '#/components/parameters/runId' }, { name: reqId, in: path, required: true, schema: { type: string } }]
     post:
-      description: The browser posts the local runner's result for an exec.request.
+      description: The browser posts the local runner's answer to an exec.request or runner.request.
       requestBody:
         required: true
         content: { application/json: { schema: { $ref: '#/components/schemas/ExecResult' } } }
       responses:
         '204': { description: Accepted }
+        '400': { description: The answer does not match the request's kind, content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } } }
         '404': { $ref: '#/components/responses/Error' }

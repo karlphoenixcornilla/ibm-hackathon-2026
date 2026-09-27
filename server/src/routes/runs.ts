@@ -14,6 +14,7 @@ const HEARTBEAT_MS = 15_000;
 const execResultBody = {
   oneOf: [
     { type: 'object', required: ['ok', 'results'], properties: { ok: { const: true }, results: { type: 'array', items: { type: 'object' } } } },
+    { type: 'object', required: ['ok', 'status', 'body'], properties: { ok: { const: true }, status: { type: 'integer' }, body: {} } },
     { type: 'object', required: ['ok', 'error'], properties: { ok: { const: false }, error: { type: 'string' } } },
   ],
 };
@@ -62,8 +63,12 @@ export async function runRoutes(app: FastifyInstance, ctx: AppContext): Promise<
     schema: { body: execResultBody },
   }, async (req, reply) => {
     const run = ctx.runs.get(req.params.id, requireSession(req).id);
-    if (!run || !run.settleExec(req.params.reqId, req.body)) {
+    const outcome = run ? run.settleExec(req.params.reqId, req.body) : 'unknown';
+    if (outcome === 'unknown') {
       return reply.code(404).send({ error: 'No pending request with that id' });
+    }
+    if (outcome === 'invalid') {
+      return reply.code(400).send({ error: 'Answer an exec.request with { ok, results } and a runner.request with { ok, status, body }' });
     }
     return reply.code(204).send();
   });
