@@ -261,7 +261,7 @@ function howItWorks(view) {
   evidence.append(explanation, example);
   const cta = el('section', undefined, 'guide-cta');
   const ctaText = el('div');
-  ctaText.append(el('h2', 'Ready to investigate your next bug?'), el('p', 'Open Reprise IDE to choose a report and start the workflow.'), el('p', 'Available in Google Chrome and Microsoft Edge on desktop.', 'meta'));
+  ctaText.append(el('h2', 'Ready to investigate your next bug?'), el('p', 'Open Reprise IDE to choose a report and start the workflow.'), el('p', 'Available in Chromium-based desktop browsers such as Chrome, Edge, Brave, Opera, Vivaldi and Arc.', 'meta'));
   cta.append(ctaText, link('Open Reprise IDE ↗', 'ide/', 'button primary'));
   view.append(steps, evidence, cta);
 }

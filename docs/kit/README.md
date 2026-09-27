@@ -10,7 +10,7 @@ The AI layer is a **stub** for now, behind a provider interface ready for Claude
 
 | Area | v2 | v3 |
 | --- | --- | --- |
-| Product form | Desktop Code - OSS fork, installers per OS | Web build of the Code - OSS fork, hosted on GitHub Pages, Chrome and Edge (Chromium) only (R-16) |
+| Product form | Desktop Code - OSS fork, installers per OS | Web build of the Code - OSS fork, hosted on GitHub Pages, Chromium-based desktop browsers only (R-16) |
 | Opening the project | Native file system | File System Access API directory handle, through the workbench's "Open Folder" (`browser-runtime.md`) |
 | Reprise extension | Node extension host | **Web extension** running in the browser's web-worker extension host: no Node APIs, no child processes (ADR-2) |
 | Local test runs | Extension spawns processes | Reprise Runner on `127.0.0.1`, paired with the tab (`local-runner.md`) |

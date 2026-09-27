@@ -8,13 +8,13 @@ Reprise IDE
 
 ## Short description
 
-Reprise IDE is a VS Code-based editor that runs in your browser and turns bug reports into proof. Open your project folder in Chrome or Edge, acknowledge a GitHub issue, and Reprise replicates it with a failing test, runs it on the right platform — Windows, Android, iOS, macOS or Linux — measures how often it fails, helps fix it, and verifies the fix broke nothing else.
+Reprise IDE is a VS Code-based editor that runs in your browser and turns bug reports into proof. Open your project folder in a Chromium-based browser such as Chrome, Edge, Brave or Arc, acknowledge a GitHub issue, and Reprise replicates it with a failing test, runs it on the right platform — Windows, Android, iOS, macOS or Linux — measures how often it fails, helps fix it, and verifies the fix broke nothing else.
 
 ## Long description
 
 **The problem.** About 17% of bug reports can't be reproduced by the developer who picks them up (Rahman et al., 2022). On native apps it's worse: the bug may only appear on one OS or device, and reproducing it means a different toolchain for each platform.
 
-**What Reprise IDE does.** Reprise is a fork of VS Code (Code - OSS) with bug reports built in, running in the browser. Open the IDE in Chrome or Edge, open your local repository folder (through the browser's File System Access API), sign in with GitHub, and your bug reports appear in the editor. A small Reprise Runner on your machine lets the browser run your tests locally. Acknowledge a report and Reprise:
+**What Reprise IDE does.** Reprise is a fork of VS Code (Code - OSS) with bug reports built in, running in the browser. Open the IDE in a Chromium-based desktop browser, open your local repository folder (through the browser's File System Access API), sign in with GitHub, and your bug reports appear in the editor. A small Reprise Runner on your machine lets the browser run your tests locally. Acknowledge a report and Reprise:
 
 1. Structures the report and checks it against earlier ones by what they describe, not how they're worded.
 2. Provides a reproduction test, or validates one you wrote, and checks it fails for the reported reason.
@@ -28,7 +28,7 @@ Reprise IDE is a VS Code-based editor that runs in your browser and turns bug re
 
 **Cost.** Free to run: open-source Code - OSS served from GitHub Pages, GitHub Actions on public repositories, a single-file Node.js runner on GitHub Releases. Nothing to install except the runner.
 
-**Try it.** Dashboard: <URL>. IDE (Chrome or Edge on desktop): <URL>/ide/. Runner: <Releases URL>. Build from source: <BUILDING.md URL>.
+**Try it.** Dashboard: <URL>. IDE (any Chromium-based desktop browser): <URL>/ide/. Runner: <Releases URL>. Build from source: <BUILDING.md URL>.
 
 ## Tags
 
