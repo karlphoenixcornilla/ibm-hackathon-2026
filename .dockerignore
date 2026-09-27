@@ -1,0 +1,11 @@
+**/node_modules
+**/out
+.git
+.github
+.bob
+ide
+extensions
+dashboard
+docs
+runner
+templates
