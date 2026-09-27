@@ -1,95 +1,14 @@
 {
-  "generated_at": "2026-09-26T11:00:00Z",
-  "data_source": "sample",
-  "repos": [
-    "sample/mobile-app",
-    "sample/desktop-app"
-  ],
+  "generated_at": "2026-09-27T09:40:53.817017Z",
+  "data_source": "live",
+  "repos": [],
   "totals": {
-    "issues": 5,
-    "by_state": {
-      "FIX_VERIFIED": 1,
-      "FLAKY": 1,
-      "CONFIRMED": 1,
-      "NEEDS_INFO": 1,
-      "VERIFYING": 1
-    },
-    "by_platform": {
-      "android": 1,
-      "ios": 1,
-      "windows": 1,
-      "linux": 1,
-      "macos": 1
-    },
-    "median_time_to_verdict_ms": 360000,
-    "fixes_verified": 1,
+    "issues": 0,
+    "by_state": {},
+    "by_platform": {},
+    "median_time_to_verdict_ms": 0,
+    "fixes_verified": 0,
     "regressions_caught": 0
   },
-  "issues": [
-    {
-      "repo": "sample/mobile-app",
-      "issue": 12,
-      "title": "Checkout stalls after reconnecting",
-      "platform": "android",
-      "state": "FIX_VERIFIED",
-      "verdict": "FLAKY",
-      "rate": 0.2,
-      "sequence": "FPPFPPPPFPPPPPFPPPPP",
-      "stubbed": true,
-      "updated_at": "2026-09-26T10:48:00Z",
-      "pr": null
-    },
-    {
-      "repo": "sample/mobile-app",
-      "issue": 18,
-      "title": "Saved items disappear after refresh",
-      "platform": "ios",
-      "state": "FLAKY",
-      "verdict": "FLAKY",
-      "rate": 0.15,
-      "sequence": "PPFPPPPFPPPPFPPPPPPP",
-      "stubbed": true,
-      "updated_at": "2026-09-26T10:42:00Z",
-      "pr": null
-    },
-    {
-      "repo": "sample/desktop-app",
-      "issue": 7,
-      "title": "Export closes the application",
-      "platform": "windows",
-      "state": "CONFIRMED",
-      "verdict": "CONFIRMED",
-      "rate": 1,
-      "sequence": "FFFFFFFFFF",
-      "stubbed": true,
-      "updated_at": "2026-09-26T10:53:00Z",
-      "pr": null
-    },
-    {
-      "repo": "sample/desktop-app",
-      "issue": 9,
-      "title": "Search drops the first character",
-      "platform": "linux",
-      "state": "NEEDS_INFO",
-      "verdict": "NEEDS_INFO",
-      "rate": 0,
-      "sequence": "",
-      "stubbed": true,
-      "updated_at": "2026-09-26T10:51:00Z",
-      "pr": null
-    },
-    {
-      "repo": "sample/desktop-app",
-      "issue": 14,
-      "title": "Settings reset when the window reopens",
-      "platform": "macos",
-      "state": "VERIFYING",
-      "verdict": "FLAKY",
-      "rate": 0.3,
-      "sequence": "FPFPPPFPPP",
-      "stubbed": true,
-      "updated_at": "2026-09-26T10:46:00Z",
-      "pr": null
-    }
-  ]
+  "issues": []
 }

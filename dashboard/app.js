@@ -166,115 +166,97 @@ async function getRecord(issue) {
   return data;
 }
 
-// ---------------------------------------------------------------------------
-// P1-P5: Dedicated Landing Page (#/)
-// ---------------------------------------------------------------------------
-async function landing(view) {
-  document.title = 'Reprise | Automated Bug Replication & Verification';
+function landing(view) {
+  document.title = 'Reprise | Reproduce the bug. Prove the fix.';
+  const hero = el('header', undefined, 'overview-hero landing-hero');
+  const copy = el('div', undefined, 'landing-copy');
+  const headline = el('h1', 'Reproduce the bug.');
+  headline.append(el('span', 'Prove the fix.'));
+  const actions = el('div', undefined, 'hero-cta-group');
+  actions.append(link('Open IDE', 'ide/', 'button primary ide-launch'));
+  copy.append(
+    el('p', 'For mobile and desktop developers', 'eyebrow'),
+    headline,
+    el('p', 'A bug replication and fix pipeline for mobile and desktop apps. Repeat flaky bugs, review a proposed fix, and check it against repeated runs.', 'intro'),
+    actions
+  );
 
-  const hero = el('header', undefined, 'overview-hero');
-  const badge = el('p', 'Reproduction Lab · Deterministic Verification', 'eyebrow');
-  const headline = el('h1', 'Reproduce the bug. Prove the fix.');
-  const subhead = el('p', 'Automated bug replication and regression-proof verification pipeline for mobile and desktop apps.', 'intro');
-
-  const ctaGroup = el('div', undefined, 'hero-cta-group');
-  const primaryCta = link('Open Reprise IDE ↗', 'ide/', 'button primary ide-launch');
-  const secondaryCta = link('Explore Live Evidence →', '#/reports', 'button secondary-cta');
-  ctaGroup.append(primaryCta, secondaryCta);
-
-  const trustStrip = el('div', undefined, 'trust-strip');
-  const trustItems = [
-    ['🔒', 'Token Stays Local', 'Zero telemetry'],
-    ['⚡', 'Zero Server', 'Static GitHub Pages'],
-    ['💻', 'Cross-Platform', 'Android · iOS · Desktop'],
-    ['🌐', 'Browser Supported', 'Chrome & Edge'],
-    ['⚖️', 'Open Source', 'MIT Licensed']
-  ];
-  for (const [icon, strongText, note] of trustItems) {
-    const item = el('div', undefined, 'trust-item');
-    item.append(
-      el('span', icon),
-      el('strong', strongText),
-      document.createTextNode(` · ${note}`)
+  const visual = el('figure', undefined, 'hero-visual');
+  const latest = index.issues.find(issue => issue.sequence);
+  visual.append(el('figcaption', 'Reproduction evidence', 'hero-visual-title'));
+  if (latest) {
+    visual.append(link(latest.title, routeFor(latest)), strip(latest.sequence), legend());
+  } else {
+    visual.append(
+      el('p', 'No runs published yet.'),
+      el('p', 'Reproduction results will appear here when reports are published.', 'meta')
     );
-    trustStrip.append(item);
   }
-
-  const specimen = el('div', undefined, 'hero-visual');
-  const specHeader = el('div', undefined, 'hero-visual-header');
-  const specTitle = el('div', undefined, 'hero-visual-title');
-  specTitle.append(
-    el('span', 'Specimen #18: Race condition on payment retry', 'spec-name'),
-    verdict('FIX_VERIFIED')
-  );
-  specHeader.append(specTitle, el('span', 'CONFIRMED & PROVED', 'badge'));
-
-  specimen.append(
-    specHeader,
-    stripRow('Before Fix', 'FFFFFFFFFFFFFFFFFFFF'),
-    stripRow('After Fix', 'PPPPPPPPPPPPPPPPPPPP'),
-    legend()
-  );
-
-  const specTags = el('div', undefined, 'hero-visual-tags');
-  specTags.append(
-    el('span', 'Android Emulator', 'tag-pill'),
-    el('span', '20 trials per test', 'tag-pill'),
-    el('span', '0 regressions detected', 'tag-pill'),
-    el('span', 'Run on this machine via local runner', 'tag-pill')
-  );
-  specimen.append(specTags);
-
-  hero.append(badge, headline, subhead, ctaGroup, trustStrip, specimen);
+  hero.append(copy, visual);
   view.append(hero);
 
+  const trust = el('ul', undefined, 'trust-strip');
+  trust.setAttribute('aria-label', 'Platforms and project details');
+  for (const text of [
+    'Mobile + desktop workflows',
+    'IDE: Chrome & Edge on desktop',
+    'MIT-licensed extension + runner'
+  ]) trust.append(el('li', text, 'trust-item'));
+  view.append(trust);
+
+  const workflow = el('section', undefined, 'landing-workflow');
+  workflow.setAttribute('aria-labelledby', 'workflow-heading');
+  const workflowHeading = el('h2', 'From a bug report to evidence.');
+  workflowHeading.id = 'workflow-heading';
+  workflow.append(el('p', 'How it works', 'eyebrow'), workflowHeading);
+  const steps = el('ol', undefined, 'steps landing-steps');
+  for (const [title, text] of [
+    ['Choose a bug', 'Start with a GitHub issue and the affected mobile or desktop app.'],
+    ['Make it repeat', 'Run the reproduction test repeatedly to see when the bug appears.'],
+    ['Check the fix', 'Review the proposed change, repeat the test, and inspect regression checks.']
+  ]) {
+    const item = el('li');
+    item.append(el('h3', title), el('p', text));
+    steps.append(item);
+  }
+  workflow.append(steps, link('Read the full workflow', '#/how-it-works'));
+  view.append(workflow);
+
+  const evidence = el('section', undefined, 'landing-evidence');
+  evidence.setAttribute('aria-labelledby', 'evidence-heading');
+  const evidenceHeading = el('h2', 'See what the runs show.');
+  evidenceHeading.id = 'evidence-heading';
+  evidence.append(
+    el('p', 'Read the evidence', 'eyebrow'),
+    evidenceHeading,
+    el('p', 'Compare before-and-after results, review the diagnosis, and check for regressions. Passing trials are evidence, not a guarantee that a bug can never recur.', 'intro'),
+    el('p', index.issues.length ? 'Totals from the published reports.' : 'No reports published yet.', 'meta')
+  );
   const metrics = el('dl', undefined, 'metrics');
-  metrics.setAttribute('aria-label', 'Verification statistics across repositories');
-  const stats = [
+  metrics.setAttribute('aria-label', 'Published report totals');
+  for (const [label, value] of [
     ['Published reports', index.issues.length],
     ['Fixes verified', index.totals.fixes_verified],
-    ['Platforms covered', Object.keys(index.totals.by_platform).length],
-    ['Median time to result', `${Math.round(index.totals.median_time_to_verdict_ms / 60000)} min`],
-  ];
-  for (const [label, value] of stats) {
-    const box = el('div', undefined, 'metric');
-    box.append(el('dt', label), el('dd', `${value}`));
-    metrics.append(box);
+    ['Platforms in reports', Object.keys(index.totals.by_platform).length],
+    ['Median time to result', index.issues.length ? `${Math.round(index.totals.median_time_to_verdict_ms / 60000)} min` : 'No runs yet']
+  ]) {
+    const metric = el('div', undefined, 'metric');
+    metric.append(el('dt', label), el('dd', String(value)));
+    metrics.append(metric);
   }
-  view.append(metrics);
-
-  const stepsSection = el('section', undefined, 'overview-hero');
-  stepsSection.append(
-    el('p', 'Deterministic Workflow', 'eyebrow'),
-    el('h2', 'From flaky issue to mathematical proof'),
-    el('p', 'Reprise replaces guesswork with statistical replication and verified patch applications.', 'intro')
-  );
-  const stepsList = el('ol', undefined, 'steps');
-  const stepsData = [
-    ['1. Capture & Acknowledge', 'Connect to any GitHub issue. Reprise parses the stack trace, repro steps, and target platform.'],
-    ['2. Automated Replication', 'Executes 20 deterministic runs on real devices/emulators via Reprise Runner to eliminate flaky noise.'],
-    ['3. Dual-Loop Verification', 'Applies candidate fixes, tests the pre-change failure signature, and verifies whole-suite regressions.'],
-  ];
-  for (const [title, desc] of stepsData) {
-    const item = el('li');
-    item.append(el('h3', title), el('p', desc));
-    stepsList.append(item);
-  }
-  view.append(stepsSection, stepsList);
+  evidence.append(metrics);
+  view.append(evidence);
 
   const banner = el('section', undefined, 'landing-cta-banner');
   const bannerText = el('div');
   bannerText.append(
-    el('h2', 'Ready to verify your bug fixes?'),
-    el('p', 'Explore real evidence reports or launch the Reprise workbench IDE.')
+    el('h2', 'Investigate your next bug.'),
+    el('p', 'Open the IDE to start your reproduction and verification workflow.')
   );
-  const bannerActions = el('div', undefined, 'landing-cta-actions');
-  bannerActions.append(
-    link('View All Reports →', '#/reports', 'button'),
-    link('Launch Reprise IDE ↗', 'ide/', 'button primary ide-launch')
-  );
-  banner.append(bannerText, bannerActions);
-  view.append(banner);
+  banner.append(bannerText, link('Open IDE', 'ide/', 'button primary ide-launch'));
+  const reportLink = el('p', undefined, 'landing-reports');
+  reportLink.append(link(index.issues.length ? 'Browse all reports' : 'View the reports dashboard', '#/reports'));
+  view.append(banner, reportLink);
 }
 
 // ---------------------------------------------------------------------------
@@ -358,7 +340,10 @@ async function reports(view) {
 
     if (shown.length === 0) {
       const empty = el('div', undefined, 'empty');
-      empty.append(el('h2', 'No reports match your filters.'), el('p', 'Try changing or clearing your selected filters.'));
+      empty.append(
+        el('h2', index.issues.length ? 'No reports match your filters.' : 'No reports published yet.'),
+        el('p', index.issues.length ? 'Try changing or clearing your selected filters.' : 'Reports will appear here after a reproduction run is published.')
+      );
       output.append(empty);
     } else {
       const scroll = el('div', undefined, 'table-scroll');
@@ -398,7 +383,9 @@ async function reports(view) {
       scroll.append(table);
       output.append(scroll);
     }
-    status.textContent = `Showing ${shown.length} of ${index.issues.length} reports · ${new Set(shown.map(i => i.platform)).size} platforms · Overall median time to result: ${Math.round(index.totals.median_time_to_verdict_ms / 60000)} min`;
+    status.textContent = index.issues.length
+      ? `Showing ${shown.length} of ${index.issues.length} reports · ${new Set(shown.map(i => i.platform)).size} platforms · Overall median time to result: ${Math.round(index.totals.median_time_to_verdict_ms / 60000)} min`
+      : 'No published runs yet.';
   }
 
   renderRows();
@@ -481,10 +468,9 @@ function howItWorks(view) {
 
   const example = el('div', undefined, 'guide-example');
   example.append(
-    el('h3', 'Before and after'),
-    el('p', 'Illustrative example, not a live result.', 'meta'),
-    stripRow('Before', 'PPFPPFPPFPPP'),
-    stripRow('After', 'PPPPPPPPPPPP'),
+    el('h3', 'Reading a report'),
+    el('p', 'Before: how often the bug reproduced. After: what changed when the fix was applied.', 'meta'),
+    el('p', 'The legend identifies each recorded test outcome.', 'meta'),
     legend()
   );
   evidence.append(explanation, example);
@@ -496,7 +482,7 @@ function howItWorks(view) {
     el('p', 'Open Reprise IDE to choose a report and start the workflow.'),
     el('p', 'Available in Google Chrome and Microsoft Edge on desktop.', 'meta')
   );
-  cta.append(ctaText, link('Open Reprise IDE ↗', 'ide/', 'button primary ide-launch'));
+  cta.append(ctaText, link('Open IDE', 'ide/', 'button primary ide-launch'));
   view.append(steps, evidence, cta);
 }
 
@@ -617,7 +603,6 @@ try {
   ]);
   validate(data, schema);
   index = data;
-  document.querySelector('#sample').hidden = data.data_source !== 'sample';
 
   setupIdeModal();
   addEventListener('hashchange', async () => {
