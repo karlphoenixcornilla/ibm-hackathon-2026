@@ -69,6 +69,10 @@ jobs:
 
       - name: Build Reprise IDE
         if: steps.cache.outputs.cache-hit != 'true'
+        env:
+          # npm ci downloads prebuilt binaries (e.g. @vscode/ripgrep) through the GitHub API;
+          # unauthenticated requests from hosted runners hit the rate limit (403).
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           node ide/build.mjs --vscode vscode --out _ide
           tar -czf ide.tar.gz -C _ide .
