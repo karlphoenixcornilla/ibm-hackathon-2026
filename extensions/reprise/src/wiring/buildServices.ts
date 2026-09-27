@@ -1,15 +1,13 @@
 // wiring/buildServices.ts — compose the Services container
 // Owned by: Integration (after base-v1).
-// At base-v1: returns fakes when reprise.dev.useFakes is true,
-// otherwise returns each module's real factory — which currently returns its own fake
-// until the track replaces it.
+// After T1–T5 merge: all real factories wired; fakes retained for useFakes mode.
 //
 // Spec: 00-base.md §B4, architecture.md §Extension layout
 
 import * as vscode from 'vscode';
 import type { Services } from '../contracts/services';
 
-// Fakes
+// Fakes (used only when reprise.dev.useFakes is true)
 import { FakeConfig } from '../fakes/FakeConfig';
 import { FakeAuth } from '../fakes/FakeAuth';
 import { FakeGitHub } from '../fakes/FakeGitHub';
@@ -25,7 +23,7 @@ import { FakeFix } from '../fakes/FakeFix';
 import { FakeVerify } from '../fakes/FakeVerify';
 import { FakeSecurity } from '../fakes/FakeSecurity';
 
-// Real module factories (each returns its own fake until the track implements it)
+// Real module factories
 import { createConfig } from '../config/config';
 
 // T1 real factories
@@ -35,15 +33,28 @@ import { createGitHub } from '../github/index';
 import { createStore } from '../store/index';
 import { createViews } from '../views/index';
 
+// T2 real factories
+import { createRunnerClient } from '../runner-client/index';
+import { createLocalExecutor } from '../exec/local/index';
+
+// T3 real factories
+import { createProviders } from '../providers/index';
+import { createPipeline } from '../pipeline/index';
+import { createStats } from '../stats/index';
+import { createSecurity } from '../security/index';
+
+// T4 real factories
+import { createFix } from '../fix/index';
+import { createVerify } from '../verify/index';
+import { createCiExecutor } from '../exec/ci/index';
+
 /**
  * Build the complete Services container.
  *
- * When `reprise.dev.useFakes` is true, every service is a fully in-memory fake
+ * When `reprise.dev.useFakes` is true every service is a fully in-memory fake
  * so the extension can be demoed without a real repository, runner or GitHub token.
  *
- * Otherwise, each module's real factory is called. At base-v1 every factory
- * except `config/` throws "Not implemented yet (track Tn)"; each track replaces
- * only the body of its own factory.
+ * Otherwise every module's real factory is used.
  */
 export function buildServices(context: vscode.ExtensionContext): Services {
   const useFakes = vscode.workspace
@@ -80,59 +91,67 @@ function buildFakeServices(): Services {
 }
 
 function buildRealServices(context: vscode.ExtensionContext): Services {
-  // Config is fully implemented by base.
-  const config = createConfig();
+  // We assemble Services incrementally; the container object is mutated in place
+  // so that circular factory dependencies (runnerClient ↔ views, pipeline ↔ fix)
+  // resolve without requiring a second pass.  Factories that accept `Omit<Services,
+  // 'x'>` receive the container cast as unknown — safe because by the time each
+  // factory is *called* all fields it actually reads are already populated.
+  const svc = {} as Services;
 
-  // T1: real auth (SecretStorage, G-7 built-in provider, PD-23 token)
-  const auth = createAuth(context);
+  // ── Base ────────────────────────────────────────────────────────────────────
+  svc.config = createConfig();
 
-  // T1: real workspace (workspace.fs + .git parsing)
-  const workspace = createWorkspace();
-
-  // Partial services needed for github factory
-  const partialForGitHub = { auth, config };
-
-  // T1: real GitHub service (REST + Git Data API)
-  const github = createGitHub({
-    ...partialForGitHub,
+  // ── T1 ──────────────────────────────────────────────────────────────────────
+  svc.auth = createAuth(context);
+  svc.workspace = createWorkspace();
+  svc.github = createGitHub({
+    auth: svc.auth,
+    config: svc.config,
     workspaceReader: async (path: string) => {
-      const r = await workspace.readFile(path);
+      const r = await svc.workspace.readFile(path);
       if (!r.ok) { return null; }
       return new TextDecoder().decode(r.value);
     },
   });
+  svc.store = createStore({ github: svc.github });
 
-  // T1: real store (reprise-data branch + IndexedDB cache)
-  const store = createStore({ github });
+  // ── T3 — stateless services (no circular deps) ───────────────────────────────
+  svc.stats = createStats(svc as unknown as Omit<Services, 'stats'>);
+  svc.security = createSecurity(svc as unknown as Omit<Services, 'security'>);
 
-  // Remaining stubs
-  const runnerClient = new FakeRunnerClient();   // T2 replaces
-  const executors = {
-    local: new FakeExecutor('local'),            // T2 replaces
-    ci: new FakeExecutor('ci'),                  // T4 replaces
+  // ── Views placeholder — replaced after real views is constructed ─────────────
+  svc.views = new FakeViews();
+
+  // ── T2 ──────────────────────────────────────────────────────────────────────
+  // Placeholder executors satisfy the executors.local/ci contract during
+  // runnerClient construction; replaced below once the real executors are ready.
+  svc.executors = {
+    local: new FakeExecutor('local'),
+    ci: new FakeExecutor('ci'),
   };
-  const providers = new FakeProvider();          // T3 replaces
-  const pipeline = new FakePipeline();           // T3 replaces
-  const stats = new FakeStats();                 // T3 replaces
-  const fix = new FakeFix();                     // T4 replaces
-  const verify = new FakeVerify();               // T4 replaces
-  const security = new FakeSecurity();           // T3 replaces
+  // Placeholder pipeline / fix / verify / providers needed by executors at build time.
+  svc.pipeline = new FakePipeline();
+  svc.providers = new FakeProvider();
+  svc.fix = new FakeFix();
+  svc.verify = new FakeVerify();
 
-  // Build a partial services object so views can reference other services
-  const partial: Omit<Services, 'views'> = {
-    config, auth, github, store, workspace,
-    runnerClient, executors, providers, pipeline, stats, fix, verify, security,
+  svc.runnerClient = createRunnerClient(svc as unknown as Omit<Services, 'runnerClient'>);
+
+  svc.executors = {
+    local: createLocalExecutor(svc),
+    ci: createCiExecutor(svc),
   };
 
-  // T1: real views (trees, webview panel, status bar)
-  const views = createViews(
-    // views needs the full Services object; we cast here because at this point
-    // all services are wired. The views factory only reads services.github,
-    // services.store, and services.views (for error reporting).
-    { ...partial, views: new FakeViews() } as Services,
-    context
-  );
+  // ── T3 — providers and pipeline (executors must be real) ─────────────────────
+  svc.providers = createProviders(svc as unknown as Omit<Services, 'providers'>);
+  svc.pipeline = createPipeline(svc as unknown as Omit<Services, 'pipeline'>);
 
-  // Replace the placeholder views ref with the real one
-  return { ...partial, views };
+  // ── T4 ──────────────────────────────────────────────────────────────────────
+  svc.fix = createFix(svc as unknown as Omit<Services, 'fix'>);
+  svc.verify = createVerify(svc as unknown as Omit<Services, 'verify'>);
+
+  // ── T1 views (needs the complete container) ──────────────────────────────────
+  svc.views = createViews(svc, context);
+
+  return svc;
 }
