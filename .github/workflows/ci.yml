@@ -41,6 +41,47 @@ jobs:
         run: npm test
         working-directory: extensions/reprise
 
+  core:
+    name: Core — typecheck, lint, depcheck, test, no-vscode
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: core/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+        working-directory: core
+
+      - name: TypeScript typecheck
+        run: npm run typecheck
+        working-directory: core
+
+      - name: ESLint
+        run: npm run lint
+        working-directory: core
+
+      - name: Dependency cruiser (boundary checks)
+        run: npm run depcheck
+        working-directory: core
+
+      - name: Unit tests
+        run: npm test
+        working-directory: core
+
+      - name: No vscode references in core/src
+        run: |
+          if grep -rn vscode core/src; then
+            echo "::error::core/src must not reference vscode"
+            exit 1
+          fi
+
   runner:
     name: Runner — tests
     runs-on: ubuntu-latest
