@@ -4,7 +4,7 @@
 // web build can be served from any static path (GitHub Pages /ide/, or a local
 // http server):
 //   1. Supported-browser check (docs/kit/02-specs/browser-runtime.md).
-//   2. Workbench configuration meta tag, read by out/vs/code/browser/workbench/workbench.js.
+//   2. Workbench configuration meta tag, read by reprise-workbench.js.
 //   3. _VSCODE_FILE_ROOT, then the NLS messages and the workbench modules, in order.
 
 (function () {
@@ -48,6 +48,6 @@
 
 	// English messages must be defined before the workbench module evaluates.
 	loadModule('out/nls.messages.js', function () {
-		loadModule('out/vs/code/browser/workbench/workbench.js');
+		loadModule('reprise-workbench.js');
 	});
 })();

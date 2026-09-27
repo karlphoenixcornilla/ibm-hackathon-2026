@@ -7,7 +7,7 @@
 //   1. merges ide/product.overrides.json into the checkout's product.json (names, PD-21: no gallery),
 //   2. bundles extensions/reprise and stages it as the built-in extension extensions/reprise,
 //   3. runs `npm ci` and `npm run gulp vscode-web-min` in the checkout,
-//   4. copies the static build plus ide/index.html and ide/reprise-boot.js into --out.
+//   4. copies the static build plus the embedder page (index.html, reprise-boot.js, reprise-workbench.js) into --out.
 //
 // Only the checkout, its sibling folder vscode-web/ (gulp's output) and --out are modified.
 
@@ -129,19 +129,26 @@ const started = Date.now();
 run('npm', ['run', 'gulp', 'vscode-web-min'], vscodeDir);
 console.log(`vscode-web-min took ${Math.round((Date.now() - started) / 60000)} min`);
 
-if (!fs.existsSync(path.join(webBuildDir, 'out', 'vs', 'code', 'browser', 'workbench', 'workbench.js'))) {
-  throw new Error(`Expected the web build in ${webBuildDir}, but workbench.js is missing`);
-}
-if (!fs.existsSync(path.join(webBuildDir, 'extensions', 'reprise', 'package.json'))) {
-  throw new Error('The web build does not contain the Reprise built-in extension');
+// Files ide/index.html, reprise-boot.js and reprise-workbench.js load from the build
+const requiredFiles = [
+  'out/nls.messages.js',
+  'out/vs/workbench/workbench.web.main.internal.js',
+  'out/vs/workbench/workbench.web.main.internal.css',
+  'extensions/reprise/package.json',
+];
+const missing = requiredFiles.filter(file => !fs.existsSync(path.join(webBuildDir, file)));
+if (missing.length) {
+  console.error(`Contents of ${webBuildDir}/out/vs/workbench:`, fs.readdirSync(path.join(webBuildDir, 'out', 'vs', 'workbench')));
+  throw new Error(`The web build in ${webBuildDir} is missing: ${missing.join(', ')}`);
 }
 
 // ── 4. Assemble the static site ───────────────────────────────────────────────
 step(`Writing ${outDir}`);
 fs.rmSync(outDir, { recursive: true, force: true });
 fs.cpSync(webBuildDir, outDir, { recursive: true });
-fs.copyFileSync(path.join(IDE_DIR, 'index.html'), path.join(outDir, 'index.html'));
-fs.copyFileSync(path.join(IDE_DIR, 'reprise-boot.js'), path.join(outDir, 'reprise-boot.js'));
+for (const file of ['index.html', 'reprise-boot.js', 'reprise-workbench.js']) {
+  fs.copyFileSync(path.join(IDE_DIR, file), path.join(outDir, file));
+}
 
 const { bytes, files } = directorySize(outDir);
 console.log(`Reprise IDE (Code - OSS ${tag}): ${files} files, ${(bytes / 1024 / 1024).toFixed(1)} MB`);
