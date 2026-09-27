@@ -17,7 +17,8 @@ import type {
 import type { Result } from '../util/result';
 import { Result as R } from '../util/result';
 
-const RUNNER_BASE_URL = 'http://127.0.0.1:47410';
+const RUNNER_PORT_START = 47410;
+const RUNNER_PORT_END   = 47419; // 10 consecutive ports per spec
 const HEARTBEAT_INTERVAL_MS = 30_000; // 30 s per spec
 const HEARTBEAT_MISS_LIMIT = 2;
 
@@ -33,7 +34,8 @@ export function createRunnerClient(
 
 class RunnerClient implements RunnerClientService {
   private sessionToken: string | null = null;
-  private baseUrl: string = RUNNER_BASE_URL;
+  /** Resolved on first successful pair(); null until then. */
+  private baseUrl: string | null = null;
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private missedHeartbeats = 0;
   private _paired = false;
@@ -46,33 +48,65 @@ class RunnerClient implements RunnerClientService {
   // ── RunnerClientService ────────────────────────────────────────────────────
 
   async pair(code: string): Promise<Result<PairResponse, string>> {
+    // Probe 47410–47419 in order; use the configured port as the start if set.
+    // Fix for issue #19: was hardcoded to 47410 and never probed fallback ports.
+    const startPort = vscode.workspace
+      .getConfiguration('reprise')
+      .get<number>('runnerPort', RUNNER_PORT_START);
+    const endPort = startPort + (RUNNER_PORT_END - RUNNER_PORT_START);
+
     const body: PairRequest = { code };
-    const res = await this.fetchRunner<PairResponse>('/pair', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-      requiresAuth: false,
-    });
+    let lastError = 'No runner found on ports ' +
+      `${startPort}–${endPort}. Start the runner and try again.`;
 
-    if (!res.ok) return R.err(res.error);
+    for (let port = startPort; port <= endPort; port++) {
+      const candidateUrl = `http://127.0.0.1:${port}`;
+      const res = await this.fetchRunnerAt<PairResponse>(candidateUrl, '/pair', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        requiresAuth: false,
+      });
 
-    const pairResp = res.value;
-    this.sessionToken = pairResp.session;
-    this._paired = true;
-    this.emitter.fire({ paired: true });
+      if (res.ok) {
+        // Found the active port
+        this.baseUrl = candidateUrl;
+        const pairResp = res.value;
+        this.sessionToken = pairResp.session;
+        this._paired = true;
+        this.emitter.fire({ paired: true });
 
-    // Same-repository check (spec §Same repository check)
-    await this.checkSameRepository(pairResp);
+        // Same-repository check (spec §Same repository check)
+        await this.checkSameRepository(pairResp);
 
-    // Start heartbeat
-    this.startHeartbeat();
+        // Start heartbeat
+        this.startHeartbeat();
 
-    return R.ok(pairResp);
+        return R.ok(pairResp);
+      }
+
+      // Only stop scanning on a real runner error (wrong code, locked),
+      // not on connection refused (port not in use).
+      const isConnectionRefused =
+        res.error.includes('ECONNREFUSED') ||
+        res.error.includes('fetch') ||
+        res.error.includes('Failed to fetch') ||
+        res.error.includes('network');
+      if (!isConnectionRefused) {
+        // Runner answered but refused — propagate that error immediately.
+        return R.err(res.error);
+      }
+
+      lastError = res.error;
+    }
+
+    return R.err(lastError);
   }
 
   async disconnect(): Promise<void> {
     this.stopHeartbeat();
     this.sessionToken = null;
+    this.baseUrl = null;
     this._paired = false;
     this.emitter.fire({ paired: false });
     this.services.views.setStatusBar('Reprise');
@@ -270,9 +304,33 @@ class RunnerClient implements RunnerClientService {
     }
   }
 
-  // ── Fetch helper ───────────────────────────────────────────────────────────
+  // ── Fetch helpers ──────────────────────────────────────────────────────────
 
+  /**
+   * Send a request to the already-resolved baseUrl.
+   * Requires pair() to have succeeded first.
+   */
   private async fetchRunner<T>(
+    path: string,
+    options: {
+      method: string;
+      headers?: Record<string, string>;
+      body?: string;
+      requiresAuth?: boolean;
+    }
+  ): Promise<Result<T, string>> {
+    if (!this.baseUrl) {
+      return R.err('Not paired: call pair() first');
+    }
+    return this.fetchRunnerAt<T>(this.baseUrl, path, options);
+  }
+
+  /**
+   * Send a request to an explicit base URL.
+   * Used by pair() during port scanning before baseUrl is set.
+   */
+  private async fetchRunnerAt<T>(
+    baseUrl: string,
     path: string,
     options: {
       method: string;
@@ -288,7 +346,7 @@ class RunnerClient implements RunnerClientService {
     }
 
     try {
-      const response = await fetch(`${this.baseUrl}${path}`, {
+      const response = await fetch(`${baseUrl}${path}`, {
         method,
         headers,
         body,
