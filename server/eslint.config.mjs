@@ -34,6 +34,12 @@ export default [
     },
   },
 
+  // ── Tests: assertions on known-present values are fine ────────────────────
+  {
+    files: ['test/**/*.ts'],
+    rules: { '@typescript-eslint/no-non-null-assertion': 'off' },
+  },
+
   // ── Ignored paths ─────────────────────────────────────────────────────────
   {
     ignores: ['out/**', 'dist/**', 'node_modules/**', '*.js'],

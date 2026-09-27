@@ -13,6 +13,15 @@ export interface Session {
   lastSeen: number;
 }
 
+/**
+ * The request's session. Only call it in routes behind the auth hook (app.ts), which has
+ * already answered 401 when there is none.
+ */
+export function requireSession(req: { session: Session | null }): Session {
+  if (!req.session) { throw new Error('No session: route is missing the auth hook.'); }
+  return req.session;
+}
+
 export interface SessionStoreOptions {
   /** Drop a session this long after its last use. */
   idleMs: number;
